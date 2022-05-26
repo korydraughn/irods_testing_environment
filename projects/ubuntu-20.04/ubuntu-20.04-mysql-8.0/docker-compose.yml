@@ -1,0 +1,48 @@
+version: '3'
+
+services:
+  catalog:
+    image: mysql:8.0.29
+    environment:
+      - MYSQL_ROOT_PASSWORD=testpassword
+      - MYSQL_USER=irods
+      - MYSQL_PASSWORD=testpassword
+    # MySQL 8.0 defaults to using UTF-8 (utf8mb4/utf8mb4_0900_ai_ci). This results in
+    # setup_irods.py failing with the following error:
+    #
+    #    pyodbc.Error: ('HY000', '[HY000] [MySQL][ODBC 8.0(a) Driver][mysqld-8.0.28]Row size too large.
+    #    The maximum row size for the used table type, not counting BLOBs, is 65535. This includes storage
+    #    overhead, check the manual. You have to change some columns to TEXT or BLOBs (1118) (SQLExecDirectW)')
+    #
+    # To get around this, we set the character set and collation scheme to latin1 as
+    # shown below. While foreign characters aren't supported with this setup, case sensitivity
+    # for queries is maintained (this is required for proper use of iRODS).
+    #
+    # --disable-log-bin is needed so that setup succeeds. Without this option, the following
+    # error is produced and setup fails:
+    #
+    #    ERROR 1418 (HY000): This function has none of DETERMINISTIC, NO SQL,
+    #    or READS SQL DATA in its declaration and binary logging is enabled
+    #    (you *might* want to use the less safe log_bin_trust_function_creators
+    #    variable)
+    #
+    # This error is triggered by the following line:
+    #
+    #    https://github.com/irods/irods/blob/2e82164055d1e6c2a3c64eedc534b45c9449df07/scripts/irods/database_connect.py#L351-L353
+    #
+    command: "--transaction-isolation=READ-COMMITTED --character-set-server=latin1 --collation-server=latin1_general_cs --disable-log-bin"
+    security_opt:
+      - seccomp:unconfined
+
+  irods-catalog-provider:
+    build:
+      context: ..
+    depends_on:
+      - catalog
+
+  irods-catalog-consumer:
+    build:
+      context: ..
+    depends_on:
+      - irods-catalog-provider
+
