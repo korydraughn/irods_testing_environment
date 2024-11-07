@@ -196,12 +196,12 @@ def make_mysql_odbcinst_ini(csp_container, container_odbc_driver_dir):
     logging.debug('configuring odbcinst.ini with MySQL 8.x drivers')
     odbcinst_ini_contents = textwrap.dedent("""\
         [MySQL ANSI]
-        Description = MySQL ODBC 8.0 ANSI Driver
-        Driver = {0}/lib/libmyodbc8a.so
+        Description = MySQL ODBC 9 ANSI Driver
+        Driver = {0}/lib/libmyodbc9a.so
 
         [MySQL Unicode]
-        Description = MySQL ODBC 8.0 Unicode Driver
-        Driver = {0}/lib/libmyodbc8w.so""".format(container_odbc_driver_dir))
+        Description = MySQL ODBC 9 Unicode Driver
+        Driver = {0}/lib/libmyodbc9w.so""".format(container_odbc_driver_dir))
 
     cmd = 'bash -c \'echo "{0}" > {1}\''.format(odbcinst_ini_contents, odbcinst_ini_path)
     ec = execute.execute_command(csp_container, cmd)
@@ -273,7 +273,7 @@ def configure_odbc_driver_mysql_80(csp_container, odbc_driver):
     """
     if not odbc_driver:
         odbc_driver = download_mysql_odbc_driver(
-            'https://dev.mysql.com/get/Downloads/Connector-ODBC/8.0/mysql-connector-odbc-8.0.33-linux-glibc2.28-x86-64bit.tar.gz')
+            'https://dev.mysql.com/get/Downloads/Connector-ODBC/9.1/mysql-connector-odbc-9.1.0-linux-glibc2.28-x86-64bit.tar.gz')
 
     configure_mysql_odbc_driver(csp_container, os.path.abspath(odbc_driver))
 
@@ -286,7 +286,7 @@ def configure_odbc_driver_mysql_84(csp_container, odbc_driver):
     """
     if not odbc_driver:
         odbc_driver = download_mysql_odbc_driver(
-            'https://dev.mysql.com/get/Downloads/Connector-ODBC/8.4/mysql-connector-odbc-8.4.0-linux-glibc2.28-x86-64bit.tar.gz')
+            'https://dev.mysql.com/get/Downloads/Connector-ODBC/9.1/mysql-connector-odbc-9.1.0-linux-glibc2.28-x86-64bit.tar.gz')
 
     configure_mysql_odbc_driver(csp_container, os.path.abspath(odbc_driver))
 
