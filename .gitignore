@@ -3,3 +3,4 @@ __pycache__/
 tags
 .irods_performance_test.sh.un~
 *~
+venv/
