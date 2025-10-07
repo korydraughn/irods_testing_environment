@@ -1,3 +1,5 @@
 __pycache__/
 *.pyc
 tags
+.irods_performance_test.sh.un~
+*~
