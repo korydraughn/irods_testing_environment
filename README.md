@@ -264,7 +264,5 @@ This does the following:
  3. Exposes port 3000 in the container as 3000 on the host. This is the default port for the `xunit-viewer` server.
 
 ## Further Documentation
-```bash
 You can find more detailed documentation on how I got the environment working in the [testing_env_docs.txt file](./testing_env_docs.txt).
-```
 
