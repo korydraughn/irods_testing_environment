@@ -1,0 +1,126 @@
+Make sure you install python 4.9 to work with all the requirements for setting up the env
+use "python --version" to see that you are using the right version, llm help can lead you from there once python 3.9.23 (the one Demetrius is using) or some other version of 3.9
+
+Basic pointers
+	1. if you already tried some of the steps but failed somewhere in the process, then remove the venv and then retry intalling the python version,
+		once the verison is in, you can just 
+
+-------------------------------------------------------------------------------Docker Setup Related-------------------------------------------------------------------------------------
+
+source ~/irods_testing_environment/bin/activate 																	- To activate the python 3.9 venv
+
+python stand_it_up.py --project-directory ./projects/ubuntu-22.04/ubuntu-22.04-postgres-14 							- Stand Up a Simple iRODS Zone (start container)
+
+docker compose --project-directory ./projects/ubuntu-22.04/ubuntu-22.04-postgres-14 down   							- Clean up containers (shutdown containers)
+
+docker exec -u irods ubuntu-2204-postgres-14_irods-catalog-provider_1 ils 											- Test That iRODS (container server) is Running
+
+python run_core_tests.py --project-directory ./projects/ubuntu-22.04/ubuntu-22.04-postgres-14 \
+                         --irods-package-directory /path/to/irods/package/directory                       			- Run Some Tests
+										(Replace /path/to/irods/package/directory with actual path if you have iRODS packages)
+
+python run_core_tests.py --project-directory ./projects/ubuntu-22.04/ubuntu-22.04-postgres-14 \
+                         --irods-package-directory /path/to/irods/package/directory                  				- Run iRODS core tests
+											(Note: You'll need to provide the actual path to your iRODS packages)
+
+python run_core_tests.py --project-directory ./projects/ubuntu-22.04/ubuntu-22.04-postgres-14 \
+                         --irods-package-directory /path/to/irods/package/directory \
+                         --tests test_resource_types test_rulebase test_iadmin										- Run Specific Tests (Target specific modules)
+
+
+python run_core_tests.py --project-directory ./projects/ubuntu-22.04/ubuntu-22.04-postgres-14 \
+                         --irods-package-directory /path/to/irods/package/directory \
+                         --concurrent-test-executor-count 4															- Run tests in parallel	(Speed up testing with concurrent executors)
+
+python run_topology_tests.py provider \
+                         --project-directory ./projects/ubuntu-22.04/ubuntu-22.04-postgres-14 \
+                         --irods-package-directory /path/to/irods/package/directory									- Run Topology Tests (Multi-server setup)
+												(If you want to test federation or multi-server scenarios)
+
+python run_unit_tests.py --project-directory ./projects/ubuntu-22.04/ubuntu-22.04-postgres-14 \
+                         --irods-package-directory /path/to/irods/package/directory									- Run Unit Tests
+													(Test the iRODS C++ unit tests)
+
+ls -la *.py                                                                                       					- See what other testing scripts are available
+
+-----------------------------------------------------------------------------Basic iRODS Commands---------------------------------------------------------------------------------------
+
+# List current directory
+docker exec -u irods ubuntu-2204-postgres-14_irods-catalog-provider_1 ils       									- List current directory
+
+# List with details
+docker exec -u irods ubuntu-2204-postgres-14_irods-catalog-provider_1 ils -l    									- List with details
+
+# Check iRODS environment
+docker exec -u irods ubuntu-2204-postgres-14_irods-catalog-provider_1 ienv      									- Check iRODS environment
+
+# Check resources
+docker exec -u irods ubuntu-2204-postgres-14_irods-catalog-provider_1 ilsresc        								- Check resources
+
+# Create a test collection
+docker exec -u irods ubuntu-2204-postgres-14_irods-catalog-provider_1 imkdir testdir  								- Create a test collection
+
+# List again to see the new directory
+docker exec -u irods ubuntu-2204-postgres-14_irods-catalog-provider_1 ils         									- List again to see new directory
+
+# Check zone status
+docker exec -u irods ubuntu-2204-postgres-14_irods-catalog-provider_1 iadmin lz   									- Check zone status
+
+
+# Create a file
+docker exec -u irods ubuntu-2204-postgres-14_irods-catalog-provider_1 bash -c "echo 'Hello iRODS' > /tmp/test.txt"  - Create a file
+
+# Put file into iRODS
+docker exec -u irods ubuntu-2204-postgres-14_irods-catalog-provider_1 iput /tmp/test.txt   							- Put files into iRODS
+
+# List files again
+docker exec -u irods ubuntu-2204-postgres-14_irods-catalog-provider_1 ils    										- List files again
+
+# Get file metadata
+docker exec -u irods ubuntu-2204-postgres-14_irods-catalog-provider_1 imeta ls -d test.txt   						- Get file metadata
+
+
+
+---------------------------------------------------------------------------------Help Commands------------------------------------------------------------------------------------------
+
+python run_core_tests.py --help																						- For getting help on scripts
+python run_topology_tests.py --help																					- For getting help on scripts
+python run_unit_tests.py --help																						- For getting help on scripts 
+
+
+
+-------------------------------------------------------------------------------Shell Script Testing-------------------------------------------------------------------------------------
+
+To Setup irods_performance_test.sh:
+	# Save in your project directory (while venv is active but before running containers)
+	cd ~/Desktop/irods_testing_environment																			- Path is going to be where your project directory is
+	# Save the script as irods_performance_test.sh
+	chmod +x irods_performance_test.sh 																				- Make it an executable shell script
+
+./performance_results/irods_performance_2025-01-07_01-54-13.txt 													- Script will automatically create a performance_results directory 
+																													  and save results with timestamps
+
+When to run the script after making it executable:
+	# 1. Start your virtual environment
+	source ~/irods_testing_environment/bin/activate																	- Start your venv
+	
+	# 2. Make sure iRODS containers are running
+	python stand_it_up.py --project-directory ./projects/ubuntu-22.04/ubuntu-22.04-postgres-14 						- Start container
+	
+	# 3. Wait for containers to be fully ready (about 30 seconds)													
+	
+	# 4. Run the performance test 																					- Run the shell
+	./irods_performance_test.sh
+
+
+---------------------------------------------------------------------Git----------------------------------------------------------------------------------------------------------------
+
+git fetch upstream                                                                                                  - pull changes from iRODS repo
+
+git merge upstream/main                                                                                             - merge current branch with the main branch in iRODS repo
+                                                                                                                       DO NOT DO
+
+git push -u origin main                                                                                             - adds the changes to the main branch in fork
+                                                                                                                      after this you can use git push since set to push to main in fork
+
+
