@@ -1,3 +1,5 @@
+*NOTE*: My system is Ubuntu 24.04.3 LTS and all of the documentation is based on that.
+
 Make sure you install python 3.9 to work with all the requirements for setting up the env
 use "python --version" to see that you are using the right version, llm help can lead you from there once python 3.9.23 (the one Demetrius is using) or some other version of 3.9
 
@@ -5,7 +7,7 @@ Basic pointers
 	1. if you already tried some of the steps but failed somewhere in the process, then remove the venv and then retry intalling the python version,
 		once the verison is in, you can just install using the requirements.txt or use llm to help you out
 
-------------------------------------------------------------------------------Guide on virtual environment setup------------------------------------------------------------------------
+------------------------------------------------------------------------------Guide On Virtual Environment Setup------------------------------------------------------------------------
 
 sudo apt install python3.9 python3.9-dev python3.9-venv                                                             - Intalling 3.9
 python3.9 -m venv ~/irods_testing_environment                                                                       - Creating the virtual environment in the irods repository
@@ -15,6 +17,7 @@ pip install -r requirements.txt                                                 
 Then if any requirements failed to install, then you have to install them manually.
 
 -------------------------------------------------------------------------------Docker Setup Related-------------------------------------------------------------------------------------
+*NOTE*: Not all the commands here necessary to run everytime. Use with discretion.
 
 source ~/irods_testing_environment/bin/activate 																	- To activate the python 3.9 venv
 
@@ -122,7 +125,7 @@ When to run the script after making it executable:
 	./irods_performance_test.sh
 
 
----------------------------------------------------------------------Git----------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------Git Setup For The Repository------------------------------------------------------------------------------
 
 git fetch upstream                                                                                                  - pull changes from iRODS repo
 
@@ -133,3 +136,17 @@ git push -u origin main                                                         
                                                                                                                       after this you can use git push since set to push to main in fork
 
 
+------------------------------------------------------------------------------------Python Client---------------------------------------------------------------------------------------
+
+Already installed in the docker file for ubuntu 22.04 we have been using to install in the container everytime it is setup
+
+# Copy the script into the container
+docker cp irods_python_client_performance_test.py ubuntu-2204-postgres-14_irods-catalog-provider_1:/tmp/            - Copy the script into the container
+
+# Run it inside the container as the irods user
+docker exec -u irods ubuntu-2204-postgres-14_irods-catalog-provider_1 python3 /tmp/irods_python_client_performance_test.py - Run it inside the container as the irods user
+
+ALTERNATIVELY:
+To install the client itself, I had some issues with the pip install command given in the python client README, so first:
+    1. sudo apt install pipx
+    2. pipx install python-irodsclient [in your desired folder]
