@@ -8,7 +8,7 @@ TEST_RUNS=25
 TEST_FILE_SIZE="100M"  # Size of test file to create
 RESULTS_DIR="./performance_results"
 TIMESTAMP=$(date -u '+%Y-%m-%d_%H-%M-%S')
-RESULTS_FILE="${RESULTS_DIR}/irods_performance_${TIMESTAMP}.txt"
+CONTAINER_NAME="ubuntu-2204-postgres-14_irods-catalog-provider_1"
 
 # Colors for output
 RED='\033[0;31m'
@@ -25,17 +25,22 @@ echo
 # Create results directory
 mkdir -p "$RESULTS_DIR"
 
-# Initialize results file
-cat > "$RESULTS_FILE" << EOF
-iRODS Performance Test Results
-==============================
-Date: $(date -u '+%Y-%m-%d %H:%M:%S UTC')
-User: $(whoami)
-Test runs: $TEST_RUNS
-Test file size: $TEST_FILE_SIZE
-Container: ubuntu-2204-postgres-14_irods-catalog-provider_1
+# Check if iRODS container is running
+if ! docker ps | grep -q $CONTAINER_NAME; then
+    echo -e "${RED}Error: iRODS container is not running!${NC}"
+    echo "Please start it first with:"
+    echo "python stand_it_up.py --project-directory ./projects/ubuntu-22.04/ubuntu-22.04-postgres-14"
+    exit 1
+fi
 
-EOF
+# Check if we can connect to iRODS
+if ! docker exec -u irods $CONTAINER_NAME ils >/dev/null 2>&1; then
+    echo -e "${RED}Error: Cannot connect to iRODS!${NC}"
+    exit 1
+fi
+
+# Create a shared directory for file exchange (if it doesn't exist)
+docker exec $CONTAINER_NAME mkdir -p /host_data 2>/dev/null
 
 # Function to run performance test
 run_performance_test() {
@@ -43,7 +48,7 @@ run_performance_test() {
     local irods_path="/tempZone/home/rods/${test_file}"
     
     echo -e "${YELLOW}Creating test file (${TEST_FILE_SIZE})...${NC}"
-    dd if=/dev/zero of="$test_file" bs=1M count=${TEST_FILE_SIZE%M} 2>/dev/null
+    truncate -s$TEST_FILE_SIZE "$test_file"
     
     declare -a upload_times
     declare -a download_times
@@ -56,95 +61,44 @@ run_performance_test() {
         # Test upload (iput)
         echo -n "Upload... "
         upload_start=$(date +%s.%N)
-        docker exec -u irods ubuntu-2204-postgres-14_irods-catalog-provider_1 \
+        docker exec -u irods $CONTAINER_NAME \
             bash -c "cd /tmp && iput /host_data/$test_file $irods_path" 2>/dev/null
         upload_end=$(date +%s.%N)
         upload_time=$(echo "$upload_end - $upload_start" | bc -l)
-        upload_times+=($upload_time)
+        upload_times+=($upload_time)     
         
         # Test download (iget)
         echo -n "Download... "
         download_start=$(date +%s.%N)
-        docker exec -u irods ubuntu-2204-postgres-14_irods-catalog-provider_1 \
+        docker exec -u irods $CONTAINER_NAME \
             bash -c "cd /tmp && iget -f $irods_path /tmp/downloaded_$test_file" 2>/dev/null
         download_end=$(date +%s.%N)
         download_time=$(echo "$download_end - $download_start" | bc -l)
         download_times+=($download_time)
         
         # Clean up iRODS file for next iteration
-        docker exec -u irods ubuntu-2204-postgres-14_irods-catalog-provider_1 \
+        docker exec -u irods $CONTAINER_NAME \
             bash -c "irm -f $irods_path" 2>/dev/null
         
         echo -e "${GREEN}Done${NC} (Upload: ${upload_time}s, Download: ${download_time}s)"
     done
     
-    # Calculate averages
-    upload_sum=0
-    download_sum=0
-    
-    for time in "${upload_times[@]}"; do
-        upload_sum=$(echo "$upload_sum + $time" | bc -l)
-    done
-    
-    for time in "${download_times[@]}"; do
-        download_sum=$(echo "$download_sum + $time" | bc -l)
-    done
-    
-    upload_avg=$(echo "scale=3; $upload_sum / $TEST_RUNS" | bc -l)
-    download_avg=$(echo "scale=3; $download_sum / $TEST_RUNS" | bc -l)
-    
-    # Calculate throughput (MB/s)
-    file_size_mb=${TEST_FILE_SIZE%M}
-    upload_throughput=$(echo "scale=2; $file_size_mb / $upload_avg" | bc -l)
-    download_throughput=$(echo "scale=2; $file_size_mb / $download_avg" | bc -l)
-    
-    # Display results
-    echo
-    echo -e "${GREEN}=== Results ===${NC}"
-    echo -e "Upload times:   ${upload_times[*]}"
-    echo -e "Download times: ${download_times[*]}"
-    echo -e "Average upload time:      ${upload_avg}s (${upload_throughput} MB/s)"
-    echo -e "Average download time:    ${download_avg}s (${download_throughput} MB/s)"
-    
-    # Append to results file
-    cat >> "$RESULTS_FILE" << EOF
-
-Test Results:
--------------
-Upload times (seconds):   ${upload_times[*]}
-Download times (seconds): ${download_times[*]}
-Average upload time:      ${upload_avg}s
-Average download time:    ${download_avg}s
-Upload throughput:        ${upload_throughput} MB/s
-Download throughput:      ${download_throughput} MB/s
-
-EOF
-    
-    # Clean up
+    # Clean up test file
     rm -f "$test_file"
     
+    # Export results for processing
+    echo "${upload_times[*]}" > "${RESULTS_DIR}/upload_times_${TIMESTAMP}.txt"
+    echo "${download_times[*]}" > "${RESULTS_DIR}/download_times_${TIMESTAMP}.txt"
+    
     echo
-    echo -e "${GREEN}Results saved to: $RESULTS_FILE${NC}"
+    echo -e "${GREEN}Raw results saved. Processing results...${NC}"
 }
-
-# Check if iRODS container is running
-if ! docker ps | grep -q ubuntu-2204-postgres-14_irods-catalog-provider_1; then
-    echo -e "${RED}Error: iRODS container is not running!${NC}"
-    echo "Please start it first with:"
-    echo "python stand_it_up.py --project-directory ./projects/ubuntu-22.04/ubuntu-22.04-postgres-14"
-    exit 1
-fi
-
-# Check if we can connect to iRODS
-if ! docker exec -u irods ubuntu-2204-postgres-14_irods-catalog-provider_1 ils >/dev/null 2>&1; then
-    echo -e "${RED}Error: Cannot connect to iRODS!${NC}"
-    exit 1
-fi
-
-# Create a shared directory for file exchange (if it doesn't exist)
-docker exec ubuntu-2204-postgres-14_irods-catalog-provider_1 mkdir -p /host_data 2>/dev/null
 
 # Run the test
 run_performance_test
 
+# Call process_results.sh to calculate and save final results
+./process_results.sh "$RESULTS_DIR" "$TIMESTAMP" "$TEST_RUNS" "$TEST_FILE_SIZE" "$CONTAINER_NAME"
+
 echo -e "${GREEN}Performance test completed!${NC}"
+
