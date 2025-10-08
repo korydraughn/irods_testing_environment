@@ -127,26 +127,20 @@ When to run the script after making it executable:
 
 ------------------------------------------------------------------------------Git Setup For The Repository------------------------------------------------------------------------------
 
-git fetch upstream                                                                                                  - pull changes from iRODS repo
+git fetch upstream                                                                                                  - Pull changes from iRODS repo
 
-git merge upstream/main                                                                                             - merge current branch with the main branch in iRODS repo
-                                                                                                                       DO NOT DO
+git merge upstream/main                                                                                             - Merge current branch with the main branch in iRODS repo
+                                                                                                                      DO NOT DO
 
-git push -u origin main                                                                                             - adds the changes to the main branch in fork
+git push -u origin main                                                                                             - Adds the changes to the main branch in fork
                                                                                                                       after this you can use git push since set to push to main in fork
 
 
-------------------------------------------------------------------------------------Python Client---------------------------------------------------------------------------------------
+-------------------------------------------------------------------------------iRODS Python Client--------------------------------------------------------------------------------------
 
-Already installed in the docker file for ubuntu 22.04 we have been using to install in the container everytime it is setup
+First make sure you are not running the container, in just the virtual environment, run "pip install python-irodsclient"
 
-# Copy the script into the container
-docker cp irods_python_client_performance_test.py ubuntu-2204-postgres-14_irods-catalog-provider_1:/tmp/            - Copy the script into the container
-
-# Run it inside the container as the irods user
-docker exec -u irods ubuntu-2204-postgres-14_irods-catalog-provider_1 python3 /tmp/irods_python_client_performance_test.py - Run it inside the container as the irods user
-
-ALTERNATIVELY:
-To install the client itself, I had some issues with the pip install command given in the python client README, so first:
-    1. sudo apt install pipx
-    2. pipx install python-irodsclient [in your desired folder]
+To test if it is installed, type:
+    1. python3
+    2. from irods.session import iRODSSession
+        * If this did not give you any errors you have installed the client properly
