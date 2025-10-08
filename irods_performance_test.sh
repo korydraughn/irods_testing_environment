@@ -55,24 +55,43 @@ run_performance_test() {
     
     echo -e "${YELLOW}Running $TEST_RUNS test iterations...${NC}"
     
+    # Create timing script inside container
+    docker exec $CONTAINER_NAME bash -c "cat > /tmp/time_iput.sh << 'EOF'
+#!/bin/bash
+start=\$(date +%s.%N)
+iput \$1 \$2
+end=\$(date +%s.%N)
+echo \"\$start \$end\"
+EOF
+chmod +x /tmp/time_iput.sh"
+
+    docker exec $CONTAINER_NAME bash -c "cat > /tmp/time_iget.sh << 'EOF'
+#!/bin/bash
+start=\$(date +%s.%N)
+iget -f \$1 \$2
+end=\$(date +%s.%N)
+echo \"\$start \$end\"
+EOF
+chmod +x /tmp/time_iget.sh"
+
     for i in $(seq 1 $TEST_RUNS); do
         echo -n "  Run $i/$TEST_RUNS: "
         
-        # Test upload (iput)
+        # Test upload (iput) - timing happens inside container
         echo -n "Upload... "
-        upload_start=$(date +%s.%N)
-        docker exec -u irods $CONTAINER_NAME \
-            bash -c "cd /tmp && iput /host_data/$test_file $irods_path" 2>/dev/null
-        upload_end=$(date +%s.%N)
+        timing=$(docker exec -u irods $CONTAINER_NAME \
+            bash /tmp/time_iput.sh /host_data/$test_file $irods_path 2>/dev/null)
+        upload_start=$(echo $timing | awk '{print $1}')
+        upload_end=$(echo $timing | awk '{print $2}')
         upload_time=$(echo "$upload_end - $upload_start" | bc -l)
         upload_times+=($upload_time)     
         
-        # Test download (iget)
+        # Test download (iget) - timing happens inside container
         echo -n "Download... "
-        download_start=$(date +%s.%N)
-        docker exec -u irods $CONTAINER_NAME \
-            bash -c "cd /tmp && iget -f $irods_path /tmp/downloaded_$test_file" 2>/dev/null
-        download_end=$(date +%s.%N)
+        timing=$(docker exec -u irods $CONTAINER_NAME \
+            bash /tmp/time_iget.sh $irods_path /tmp/downloaded_$test_file 2>/dev/null)
+        download_start=$(echo $timing | awk '{print $1}')
+        download_end=$(echo $timing | awk '{print $2}')
         download_time=$(echo "$download_end - $download_start" | bc -l)
         download_times+=($download_time)
         
@@ -101,4 +120,3 @@ run_performance_test
 ./process_results.sh "$RESULTS_DIR" "$TIMESTAMP" "$TEST_RUNS" "$TEST_FILE_SIZE" "$CONTAINER_NAME"
 
 echo -e "${GREEN}Performance test completed!${NC}"
-
