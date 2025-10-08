@@ -4,3 +4,4 @@ tags
 .irods_performance_test.sh.un~
 *~
 venv/
+/performance_results/
