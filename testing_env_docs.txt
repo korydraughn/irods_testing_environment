@@ -1,9 +1,18 @@
-Make sure you install python 4.9 to work with all the requirements for setting up the env
+Make sure you install python 3.9 to work with all the requirements for setting up the env
 use "python --version" to see that you are using the right version, llm help can lead you from there once python 3.9.23 (the one Demetrius is using) or some other version of 3.9
 
 Basic pointers
 	1. if you already tried some of the steps but failed somewhere in the process, then remove the venv and then retry intalling the python version,
-		once the verison is in, you can just 
+		once the verison is in, you can just install using the requirements.txt or use llm to help you out
+
+------------------------------------------------------------------------------Guide on virtual environment setup------------------------------------------------------------------------
+
+sudo apt install python3.9 python3.9-dev python3.9-venv                                                             - Intalling 3.9
+python3.9 -m venv ~/irods_testing_environment                                                                       - Creating the virtual environment in the irods repository
+source ~/irods_testing_environment/bin/activate                                                                     - To activate the python 3.9 venv
+pip install -r requirements.txt                                                                                     - Installing requirements
+
+Then if any requirements failed to install, then you have to install them manually.
 
 -------------------------------------------------------------------------------Docker Setup Related-------------------------------------------------------------------------------------
 
