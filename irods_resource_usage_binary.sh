@@ -6,8 +6,8 @@
 # Configuration
 TEST_RUNS=10
 TEST_FILE_SIZE="100M"
-RESULTS_DIR="./resource_usage_results"
-TIMESTAMP=$(date -u '+%Y-%m-%d_%H-%M-%S')
+RESULTS_DIR=${1:-"./resource_usage_results"}
+TIMESTAMP=${2:-$(date -u '+%Y-%m-%d_%H-%M-%S')}
 CONTAINER_NAME="ubuntu-2204-postgres-14_irods-catalog-provider_1"
 
 # Colors
@@ -75,12 +75,10 @@ for i in $(seq 1 "$TEST_RUNS"); do
 
     # Upload (iput)
     echo -e "  ${GREEN}Measuring iput...${NC}"
-    docker exec -u irods $CONTAINER_NAME bash /tmp/resource_usage.sh "/tmp/$TEST_FILE" "$IRODS_PATH" "iput" > "${RESULTS_DIR}/iput_run_${i}.txt"
-
+    docker exec -u irods $CONTAINER_NAME bash /tmp/resource_usage.sh "/tmp/$TEST_FILE" "$IRODS_PATH" "iput" > "${RESULTS_DIR}/iput_run_${i}_${TIMESTAMP}.txt"
     # Download (iget)
     echo -e "  ${GREEN}Measuring iget...${NC}"
-    docker exec -u irods $CONTAINER_NAME bash /tmp/resource_usage.sh "/tmp/$TEST_FILE" "$IRODS_PATH" "iget" > "${RESULTS_DIR}/iget_run_${i}.txt"
-
+    docker exec -u irods $CONTAINER_NAME bash /tmp/resource_usage.sh "/tmp/$TEST_FILE" "$IRODS_PATH" "iget" > "${RESULTS_DIR}/iget_run_${i}_${TIMESTAMP}.txt"
     # Clean up iRODS file
     docker exec -u irods $CONTAINER_NAME irm -f "$IRODS_PATH"
 done

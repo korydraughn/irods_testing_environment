@@ -20,7 +20,7 @@ if [[ -z "$RESULTS_DIR" || -z "$TIMESTAMP" || -z "$TEST_RUNS" || -z "$TEST_FILE_
     exit 1
 fi
 
-# Output file in writable directory
+# Output file in writable directory	
 RESULTS_FILE="${RESULTS_DIR}/irods_resource_usage_${TIMESTAMP}.txt"
 
 # === INITIALIZE ARRAYS ===
