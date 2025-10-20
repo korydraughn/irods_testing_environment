@@ -6,8 +6,8 @@
 # Configuration
 TEST_RUNS=10
 TEST_FILE_SIZE="100M"
-RESULTS_DIR="./resource_usage_results"
-TIMESTAMP=$(date -u '+%Y-%m-%d_%H-%M-%S')
+RESULTS_DIR=${1:-"./resource_usage_results"}
+TIMESTAMP=${2:-$(date -u '+%Y-%m-%d_%H-%M-%S')}
 CONTAINER_NAME="ubuntu-2204-postgres-14_irods-catalog-provider_1"
 
 # Colors

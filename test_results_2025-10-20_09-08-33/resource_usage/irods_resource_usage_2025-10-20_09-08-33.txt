@@ -1,0 +1,16 @@
+iRODS Client-Side Resource Usage Results
+========================================
+Date: 2025-10-20 09:08:40 UTC
+Timestamp: 2025-10-20_09-08-33
+User: mmuramoto
+Test runs: 10
+Test file size: 100M
+Container: ubuntu-2204-postgres-14_irods-catalog-provider_1
+
+Average CPU and Memory Usage:
+-----------------------------
+Average iput CPU usage:     35.80%
+Average iput memory usage:  35289 KB
+
+Average iget CPU usage:     161.10%
+Average iget memory usage:  35155 KB

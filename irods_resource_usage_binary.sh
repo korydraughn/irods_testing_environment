@@ -75,10 +75,10 @@ for i in $(seq 1 "$TEST_RUNS"); do
 
     # Upload (iput)
     echo -e "  ${GREEN}Measuring iput...${NC}"
-    docker exec -u irods $CONTAINER_NAME bash /tmp/resource_usage.sh "/tmp/$TEST_FILE" "$IRODS_PATH" "iput" > "${RESULTS_DIR}/iput_run_${i}_${TIMESTAMP}.txt"
+    docker exec -u irods $CONTAINER_NAME bash /tmp/resource_usage.sh "/tmp/$TEST_FILE" "$IRODS_PATH" "iput" > "${RESULTS_DIR}/iput_run_${i}.txt"
     # Download (iget)
     echo -e "  ${GREEN}Measuring iget...${NC}"
-    docker exec -u irods $CONTAINER_NAME bash /tmp/resource_usage.sh "/tmp/$TEST_FILE" "$IRODS_PATH" "iget" > "${RESULTS_DIR}/iget_run_${i}_${TIMESTAMP}.txt"
+    docker exec -u irods $CONTAINER_NAME bash /tmp/resource_usage.sh "/tmp/$TEST_FILE" "$IRODS_PATH" "iget" > "${RESULTS_DIR}/iget_run_${i}.txt"
     # Clean up iRODS file
     docker exec -u irods $CONTAINER_NAME irm -f "$IRODS_PATH"
 done
