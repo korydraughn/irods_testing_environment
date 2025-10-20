@@ -1,17 +1,17 @@
-	Command being timed: "iput /tmp/test_file_100M_1852.dat /tempZone/home/rods/test_file_100M_1852.dat_9"
+	Command being timed: "iput /tmp/test_file_100M_15385.dat /tempZone/home/rods/test_file_100M_15385.dat_9"
 	User time (seconds): 0.00
-	System time (seconds): 0.04
-	Percent of CPU this job got: 41%
+	System time (seconds): 0.03
+	Percent of CPU this job got: 40%
 	Elapsed (wall clock) time (h:mm:ss or m:ss): 0:00.11
 	Average shared text size (kbytes): 0
 	Average unshared data size (kbytes): 0
 	Average stack size (kbytes): 0
 	Average total size (kbytes): 0
-	Maximum resident set size (kbytes): 35328
+	Maximum resident set size (kbytes): 35136
 	Average resident set size (kbytes): 0
 	Major (requiring I/O) page faults: 0
 	Minor (reclaiming a frame) page faults: 5463
-	Voluntary context switches: 45
+	Voluntary context switches: 46
 	Involuntary context switches: 1
 	Swaps: 0
 	File system inputs: 0
