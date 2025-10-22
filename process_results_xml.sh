@@ -34,6 +34,7 @@ done
 
 upload_avg=$(echo "scale=3; $upload_sum / $TEST_RUNS" | bc -l)
 download_avg=$(echo "scale=3; $download_sum / $TEST_RUNS" | bc -l)
+total_transfer_time=$(echo "$upload_sum + $download_sum" | bc -l)
 
 # Calculate throughput (MB/s)
 file_size_mb=${TEST_FILE_SIZE%M}
@@ -47,6 +48,7 @@ echo -e "Upload times:   ${upload_times[*]}"
 echo -e "Download times: ${download_times[*]}"
 echo -e "Average upload time:      ${upload_avg}s (${upload_throughput} MB/s)"
 echo -e "Average download time:    ${download_avg}s (${download_throughput} MB/s)"
+echo -e "Total transfer time (sum of all uploads and downloads): ${total_transfer_time}s"
 
 # Write results file
 cat > "$RESULTS_FILE" << EOF

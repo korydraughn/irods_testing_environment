@@ -60,8 +60,10 @@ for i in $(seq 1 "$TEST_RUNS"); do
 
     # Optional: Print per-run summary (uncomment if desired)
     echo "Run $i:"
-    echo "  iput CPU: ${iput_cpu}%, Memory: ${iput_mem} KB"
-    echo "  iget CPU: ${iget_cpu}%, Memory: ${iget_mem} KB"
+    iput_mem_mb=$(echo "scale=2; $iput_mem / 1024" | bc)
+    iget_mem_mb=$(echo "scale=2; $iget_mem / 1024" | bc)
+    echo "  iput CPU: ${iput_cpu}%, Memory: ${iput_mem_mb} MB"
+    echo "  iget CPU: ${iget_cpu}%, Memory: ${iget_mem_mb} MB"
 done
 
 # === FUNCTION: Sum array ===
@@ -78,9 +80,11 @@ sum_array() {
 
 # === AVERAGE CALCULATIONS ===
 iput_cpu_avg=$(echo "scale=2; $(sum_array "${iput_cpu_usage[@]}") / $TEST_RUNS" | bc)
-iput_mem_avg=$(echo "scale=0; $(sum_array "${iput_mem_usage[@]}") / $TEST_RUNS" | bc)
+iput_mem_avg_kb=$(echo "scale=2; $(sum_array "${iput_mem_usage[@]}") / $TEST_RUNS" | bc)
 iget_cpu_avg=$(echo "scale=2; $(sum_array "${iget_cpu_usage[@]}") / $TEST_RUNS" | bc)
-iget_mem_avg=$(echo "scale=0; $(sum_array "${iget_mem_usage[@]}") / $TEST_RUNS" | bc)
+iget_mem_avg_kb=$(echo "scale=2; $(sum_array "${iget_mem_usage[@]}") / $TEST_RUNS" | bc)
+iput_mem_avg=$(echo "scale=2; $iput_mem_avg_kb / 1024" | bc)
+iget_mem_avg=$(echo "scale=2; $iget_mem_avg_kb / 1024" | bc)
 
 # === DISPLAY RESULTS TO CONSOLE ===
 echo
@@ -90,10 +94,10 @@ echo "File size:         $TEST_FILE_SIZE"
 echo "Container:         $CONTAINER_NAME"
 echo
 echo "Average iput CPU usage:     ${iput_cpu_avg}%"
-echo "Average iput memory usage:  ${iput_mem_avg} KB"
+echo "Average iput memory usage:  ${iput_mem_avg} MB"
 echo
 echo "Average iget CPU usage:     ${iget_cpu_avg}%"
-echo "Average iget memory usage:  ${iget_mem_avg} KB"
+echo "Average iget memory usage:  ${iget_mem_avg} MB"
 echo
 
 # === WRITE TO OUTPUT FILE ===
@@ -110,10 +114,10 @@ Container: $CONTAINER_NAME
 Average CPU and Memory Usage:
 -----------------------------
 Average iput CPU usage:     ${iput_cpu_avg}%
-Average iput memory usage:  ${iput_mem_avg} KB
+Average iput memory usage:  ${iput_mem_avg} MB
 
 Average iget CPU usage:     ${iget_cpu_avg}%
-Average iget memory usage:  ${iget_mem_avg} KB
+Average iget memory usage:  ${iget_mem_avg} MB
 EOF
 
 # === FINAL SUCCESS MESSAGE ===
