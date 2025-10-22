@@ -21,6 +21,8 @@ services:
         # we bump the maximum amount of shared memory from 64mb to 100mb. This is required because
         # iRODS 5 can have two Agent Factories running simultaneously (due to the SIGHUP).
         shm_size: 100mb
+        ports: 
+            - 1247:1247
 
     irods-catalog-consumer:
         build:
