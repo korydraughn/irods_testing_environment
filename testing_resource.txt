@@ -1,4 +1,6 @@
 If when running ./irods_resource_usage_binary.sh or ./irods_resource_usage_xml.sh and you get no data its because you need to install time for it to track our iput and iget command. 
 
 Install using this 
-- sudo apt install time 
+- docker exec -u root ubuntu-2204-postgres-14_irods-catalog-provider_1 apt update
+  docker exec -u root ubuntu-2204-postgres-14_irods-catalog-provider_1 apt install -y time
+ 

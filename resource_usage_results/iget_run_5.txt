@@ -1,8 +1,8 @@
-	Command being timed: "iget -f /tempZone/home/rods/test_file_100M_8917.dat_5 /tmp/downloaded_test_file_100M_8917.dat"
-	User time (seconds): 0.01
+	Command being timed: "iget -f /tempZone/home/rods/test_file_100M_16639.dat_5 /tmp/downloaded_test_file_100M_16639.dat"
+	User time (seconds): 0.00
 	System time (seconds): 0.18
-	Percent of CPU this job got: 156%
-	Elapsed (wall clock) time (h:mm:ss or m:ss): 0:00.12
+	Percent of CPU this job got: 162%
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 0:00.11
 	Average shared text size (kbytes): 0
 	Average unshared data size (kbytes): 0
 	Average stack size (kbytes): 0
@@ -10,11 +10,11 @@
 	Maximum resident set size (kbytes): 35136
 	Average resident set size (kbytes): 0
 	Major (requiring I/O) page faults: 0
-	Minor (reclaiming a frame) page faults: 5462
-	Voluntary context switches: 2833
+	Minor (reclaiming a frame) page faults: 5454
+	Voluntary context switches: 2239
 	Involuntary context switches: 1
 	Swaps: 0
-	File system inputs: 8
+	File system inputs: 0
 	File system outputs: 204800
 	Socket messages sent: 0
 	Socket messages received: 0
