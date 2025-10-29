@@ -1,0 +1,1 @@
+binary resource usage for cpu and mem for 1gb

@@ -5,7 +5,7 @@
 
 # Configuration
 TEST_RUNS=25
-TEST_FILE_SIZE="100M"  # Size of test file to create
+TEST_FILE_SIZE="1000M"  # Size of test file to create
 RESULTS_DIR=${1:-"./performance_results"}
 TIMESTAMP=${2:-$(date -u '+%Y-%m-%d_%H-%M-%S')}
 CONTAINER_NAME="ubuntu-2204-postgres-14_irods-catalog-provider_1"
