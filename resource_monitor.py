@@ -213,7 +213,3 @@ if __name__ == "__main__":
     
     # Display results
     print(format_stats(stats))
-    
-    # Save to file
-    save_stats_to_file(stats, "resource_usage_test.txt")
-    print("\nStats saved to: resource_usage_test.txt")
