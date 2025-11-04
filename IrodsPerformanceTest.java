@@ -1,120 +1,124 @@
-import org.irods.irods4j.high_level.connection.IRODSConnection;
-import org.irods.irods4j.high_level.connection.QualifiedUsername;
-import org.irods.irods4j.authentication.NativeAuthPlugin;
-import org.irods.irods4j.high_level.file.IRODSFile;
-import org.irods.irods4j.high_level.file.IRODSFileFactory;
-import com.github.luben.zstd.ZstdOutputStream;
-import com.github.luben.zstd.ZstdInputStream;
+import org.irods.irods4j.low_level.api.IRODSApi;
+import org.irods.irods4j.low_level.api.IRODSApi.RcComm;
+import org.irods.irods4j.low_level.api.IRODSApi.ByteArrayReference;
+import org.irods.irods4j.low_level.protocol.packing_instructions.OpenedDataObjInp_PI;
 
-import java.io.*;
-import java.nio.file.*;
-import java.util.*;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.OutputStream;
 
 public class IrodsPerformanceTest {
+    public static void main(String[] args) throws Exception {
+        String host = "98.93.165.152";
+        int port = 1247;
+        String user = "rods";
+        String password = "usfusf";
+        String zone = "tempZone";
 
-private static final int TEST_RUNS = 3;  
-private static final String TEST_FILES_DIR = "/mnt/c/Users/maxxm/OneDrive/Desktop/testfiles";  
-private static final String RESULTS_DIR = "./performance_results";  
+        String testDirPath = "/mnt/c/Users/maxxm/OneDrive/Desktop/testfiles"; // adjust if needed
+        File testDir = new File(testDirPath);
+        if (!testDir.exists() || !testDir.isDirectory()) {
+            throw new IllegalArgumentException("Invalid test directory: " + testDirPath);
+        }
 
-public static void main(String[] args) throws Exception {  
-    String host = "localhost";  
-    int port = 1247;  
-    String user = "rods";  
-    String password = "rods";  
-    String zone = "tempZone";  
+        System.out.println("Running 3 test runs on " + testDir.listFiles().length + " file(s) | Compression: DISABLED");
+        System.out.println();
 
-    new File(RESULTS_DIR).mkdirs();  
-    File[] files = new File(TEST_FILES_DIR).listFiles(File::isFile);  
-    if (files == null || files.length == 0) {  
-        System.out.println("No test files found in " + TEST_FILES_DIR);  
-        return;  
-    }  
+        System.out.println("[DEBUG] Connecting to iRODS...");
+        RcComm rcComm = IRODSApi.rcConnect(
+                host,
+                port,
+                user,
+                zone,
+                java.util.Optional.of(password),
+                java.util.Optional.empty(),
+                java.util.Optional.empty(),
+                java.util.Optional.empty()
+        );
 
-    System.out.printf("Running %d compression test runs on %d file(s)%n", TEST_RUNS, files.length);  
+        System.out.println("[DEBUG] Connected, authenticating...");
+        int status = IRODSApi.clientLogin(rcComm, password);
+        if (status != 0) throw new RuntimeException("Authentication failed: " + status);
+        System.out.println("[DEBUG] Authentication successful.");
+        System.out.println();
 
-    try (IRODSConnection conn = new IRODSConnection()) {  
-        conn.connect(host, port, new QualifiedUsername(user, zone));  
-        conn.authenticate(new NativeAuthPlugin(), password);  
+        for (File file : testDir.listFiles()) {
+            if (!file.isFile()) continue;
+            for (int run = 1; run <= 3; run++) {
+                System.out.printf("[DEBUG] ===== Starting test for: %s (Run %d) =====%n", file.getName(), run);
+                runSingleTest(rcComm, file, run);
+                System.out.println();
+            }
+        }
 
-        IRODSFileFactory fileFactory = conn.getIRODSFileFactory();  
+        IRODSApi.rcDisconnect(rcComm);
+        System.out.println("[DEBUG] Disconnected cleanly.");
+    }
 
-        for (int run = 1; run <= TEST_RUNS; run++) {  
-            for (File file : files) {  
-                runSingleCompressionTest(conn, fileFactory, file, run, user, zone);  
-            }  
-        }  
-    }  
-}  
+    private static void runSingleTest(RcComm rcComm, File file, int run) throws Exception {
+        long transferSize = file.length();
+        String remotePath = "/tempZone/home/rods/" + file.getName() + "_" + System.currentTimeMillis();
+        String localDownloadPath = "/tmp/download_" + file.getName();
 
-private static void runSingleCompressionTest(IRODSConnection conn, IRODSFileFactory fileFactory, File file, int run, String user, String zone) throws Exception {  
-    String irodsPath = String.format("/%s/home/%s/%s_compressed_%d", zone, user, file.getName(), System.currentTimeMillis());  
+        // Upload
+        long startUpload = System.nanoTime();
+        OpenedDataObjInp_PI openInp = new OpenedDataObjInp_PI();
+        openInp.objPath = remotePath;
+        openInp.createMode = 0644;
+        openInp.openFlags = 2; // O_WRONLY | O_CREAT
 
-    // Compress file
-    File compressedFile = compressFile(file);  
-    long compressedSize = compressedFile.length();  
-    System.out.printf("Compressed %s (%.2f MB → %.2f MB)%n", file.getName(), file.length() / 1e6, compressedSize / 1e6);  
+        int fd = IRODSApi.rcDataObjCreate(rcComm, openInp);
+        if (fd < 0) throw new java.io.IOException("rcDataObjCreate failed: " + fd);
+        System.out.println("[DEBUG] Upload fd: " + fd);
 
-    // Upload using high-level API
-    IRODSFile remoteFile = fileFactory.instanceIRODSFile(irodsPath);  
-    long startUpload = System.nanoTime();  
-    try (InputStream fis = new FileInputStream(compressedFile);  
-         OutputStream out = fileFactory.instanceIRODSFileOutputStream(remoteFile)) {  
-        byte[] buffer = new byte[4 * 1024 * 1024];  
-        int bytesRead;  
-        while ((bytesRead = fis.read(buffer)) != -1) {  
-            out.write(buffer, 0, bytesRead);  
-        }  
-    }  
-    double uploadTime = (System.nanoTime() - startUpload) / 1e9;  
-    double uploadRate = (compressedSize / 1e6) / uploadTime;  
-    System.out.printf("Run %d | Uploaded %s in %.2fs (%.2f MB/s)%n", run, file.getName(), uploadTime, uploadRate);  
+        try (FileInputStream fis = new FileInputStream(file)) {
+            byte[] buffer = new byte[65536];
+            ByteArrayReference ref = new ByteArrayReference(buffer);
+            int bytesRead;
+            long totalUploaded = 0;
 
-    // Download using high-level API
-    File downloadFile = Files.createTempFile("irods_download_", ".zst").toFile();  
-    long startDownload = System.nanoTime();  
-    try (InputStream in = fileFactory.instanceIRODSFileInputStream(remoteFile);  
-         OutputStream out = new FileOutputStream(downloadFile)) {  
-        byte[] buffer = new byte[4 * 1024 * 1024];  
-        int bytesRead;  
-        while ((bytesRead = in.read(buffer)) != -1) {  
-            out.write(buffer, 0, bytesRead);  
-        }  
-    }  
-    double downloadTime = (System.nanoTime() - startDownload) / 1e9;  
-    double downloadRate = (downloadFile.length() / 1e6) / downloadTime;  
-    System.out.printf("Run %d | Downloaded %s in %.2fs (%.2f MB/s)%n", run, file.getName(), downloadTime, downloadRate);  
+            while ((bytesRead = fis.read(buffer)) != -1) {
+                ref.data = buffer;
+                int status = IRODSApi.rcDataObjWrite(rcComm, fd, ref, bytesRead);
+                if (status < 0) throw new java.io.IOException("rcDataObjWrite failed: " + status);
+                totalUploaded += bytesRead;
+            }
+            System.out.println("[DEBUG] Total bytes uploaded: " + totalUploaded);
+        }
 
-    // Decompress to verify
-    File decompressed = decompressFile(downloadFile);  
-    System.out.printf("Decompressed back to %.2f MB%n", decompressed.length() / 1e6);  
+        IRODSApi.rcDataObjClose(rcComm, fd);
+        double uploadTime = (System.nanoTime() - startUpload) / 1e9;
+        double uploadRate = (transferSize / 1e6) / uploadTime;
+        System.out.printf("Run %d | Uploaded %s in %.2fs (%.2f MB/s), total bytes: %d%n",
+                run, file.getName(), uploadTime, uploadRate, transferSize);
 
-    // Cleanup
-    remoteFile.delete();  
-    compressedFile.delete();  
-    downloadFile.delete();  
-    decompressed.delete();  
-}  
+        // Download
+        long startDownload = System.nanoTime();
+        OpenedDataObjInp_PI readInp = new OpenedDataObjInp_PI();
+        readInp.objPath = remotePath;
+        readInp.openFlags = 0; // O_RDONLY
 
-private static File compressFile(File input) throws IOException {  
-    File compressed = File.createTempFile("compressed_", ".zst");  
-    try (InputStream fis = new FileInputStream(input);  
-         OutputStream fos = new FileOutputStream(compressed);  
-         ZstdOutputStream zOut = new ZstdOutputStream(fos)) {  
-        fis.transferTo(zOut);  
-    }  
-    return compressed;  
-}  
+        int readFd = IRODSApi.rcDataObjOpen(rcComm, readInp);
+        if (readFd < 0) throw new java.io.IOException("rcDataObjOpen failed: " + readFd);
+        System.out.println("[DEBUG] Download fd: " + readFd);
 
-private static File decompressFile(File input) throws IOException {  
-    File decompressed = File.createTempFile("decompressed_", ".tmp");  
-    try (InputStream fis = new FileInputStream(input);  
-         ZstdInputStream zIn = new ZstdInputStream(fis);  
-         OutputStream fos = new FileOutputStream(decompressed)) {  
-        zIn.transferTo(fos);  
-    }  
-    return decompressed;  
-}  
+        long totalDownloaded = 0;
+        ByteArrayReference ref = new ByteArrayReference(new byte[65536]);
+        try (OutputStream fos = new FileOutputStream(localDownloadPath)) {
+            int bytesRead;
+            while ((bytesRead = IRODSApi.rcDataObjRead(rcComm, readInp, ref)) > 0) {
+                fos.write(ref.data, 0, bytesRead);
+                totalDownloaded += bytesRead;
+                System.out.printf("[DEBUG] Downloaded chunk: %d bytes%n", bytesRead);
+            }
+        }
 
-
+        IRODSApi.rcDataObjClose(rcComm, readFd);
+        double downloadTime = (System.nanoTime() - startDownload) / 1e9;
+        double downloadRate = (transferSize / 1e6) / downloadTime;
+        System.out.printf("Run %d | Downloaded %s in %.2fs (%.2f MB/s), total bytes: %d%n",
+                run, file.getName(), downloadTime, downloadRate, totalDownloaded);
+    }
 }
 
