@@ -14,10 +14,10 @@ import java.util.*;
 
 public class IrodsPerformanceTest1 {
 
-private static final int TEST_RUNS = 3;
+private static final int TEST_RUNS = 25;
 private static final String TEST_FILES_DIR = "/mnt/c/Users/maxxm/OneDrive/Desktop/testfiles";
 private static final String RESULTS_DIR = "./performance_results";
-private static final boolean ENABLE_COMPRESSION = true; // Keep compression enabled
+private static final boolean ENABLE_COMPRESSION = false; // Keep compression enabled
 
 public static void main(String[] args) throws Exception {
     String host = "98.93.165.152";
