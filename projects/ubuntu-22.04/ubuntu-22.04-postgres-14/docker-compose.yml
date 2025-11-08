@@ -1,31 +1,31 @@
-version: '3.8'
+version: "3.7"
 
 services:
   catalog:
     image: postgres:14
-    container_name: ubuntu-2204-postgres-14_irods-database_1
     environment:
-      POSTGRES_PASSWORD: testpassword
-    volumes:
-      - pg_data:/var/lib/postgresql/data
+      - POSTGRES_PASSWORD=testpassword
 
-  irods-provider:
-    image: mjstealey/irods-provider-postgres:latest
-    container_name: ubuntu-2204-postgres-14_irods-catalog-provider_1
+  irods-catalog-provider:
+    build:
+      context: ..
+      dockerfile: ${dockerfile}
+      args:
+        - irods_package_version=${irods_package_version}
     depends_on:
       - catalog
-    ports:
-      - "1247:1247"               # iRODS control port
-      - "20000-20199:20000-20199" # iRODS data ports
-    environment:
-      IRODS_USER_NAME: rods
-      IRODS_ZONE_NAME: tempZone
-      IRODS_PASSWORD: usfusf
-      IRODS_SSL_VERIFY_SERVER: "false"   # disable SSL handshake errors for testing
     volumes:
       - shared_volume:/irods_testing_environment_mount_dir
+    shm_size: 100mb
+    ports:
+      - "1247:1247"         # main iRODS port
+      - "20000-20199:20000-20199"   # parallel transfer ports (optional)
+    environment:
+      - ODBC_DRIVER=PostgreSQL
+      - DB_HOST=catalog
+      - DB_PORT=5432
+      - DB_PASSWORD=testpassword
 
 volumes:
-  shared_volume: {}
-  pg_data: {}
+  shared_volume:
 
