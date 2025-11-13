@@ -20,7 +20,7 @@ public class IrodsPerformanceTest1 {
 
     private static final int TEST_RUNS = 3;
     private static final String TEST_FILES_DIR = "/home/mmuramoto/testfiles";
-    private static final boolean ENABLE_COMPRESSION = false;
+    private static final boolean ENABLE_COMPRESSION = true;
     private static final String RESULTS_DIR = "./performance_results";
     
     // Optimized buffer settings for large files
