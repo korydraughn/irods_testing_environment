@@ -18,8 +18,8 @@ import java.util.zip.*;
  */
 public class IrodsPerformanceTest2 {
 
-    private static final int TEST_RUNS = 25;
-    private static final String TEST_FILES_DIR = "C:\\Users\\maxxm\\OneDrive\\Desktop\\testfiles";
+    private static final int TEST_RUNS = 1;
+    private static final String TEST_FILES_DIR = "/home/mmuramoto/testfiles_small";
     private static final boolean ENABLE_COMPRESSION = false;
     private static final String RESULTS_DIR = "./performance_results";
     private static final int BUFFER_SIZE = 64 * 1024;
@@ -204,7 +204,7 @@ public class IrodsPerformanceTest2 {
         config.zone = props.getProperty("irods_zone_name");
         config.homeDir = props.getProperty("irods_home", 
             "/" + config.zone + "/home/" + config.username);
-        config.password = readPassword();
+        config.password = "usfusf";
         
         return config;
     }

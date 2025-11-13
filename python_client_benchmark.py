@@ -34,7 +34,7 @@ from resource_monitor import ResourceMonitor, format_stats, save_stats_to_file
 
 # ==================== CONFIGURATION ====================
 TEST_RUNS = 3
-TEST_FILES_DIR = "/home/demetrius/Desktop/testFiles"
+TEST_FILES_DIR = "/home/mmuramoto/testfiles"
 ENABLE_ADAPTIVE_COMPRESSION = True  # Auto-adjust compression based on network speed
 MANUAL_COMPRESSION_LEVEL = 3  # Used only if adaptive is disabled
 ENABLE_CLEANUP = True
