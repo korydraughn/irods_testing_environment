@@ -6,65 +6,119 @@ import org.irods.irods4j.high_level.vfs.IRODSFilesystem;
 import org.irods.irods4j.low_level.api.IRODSApi.RcComm;
 import org.irods.irods4j.authentication.NativeAuthPlugin;
 
+import com.github.luben.zstd.ZstdOutputStream;
+import com.github.luben.zstd.ZstdInputStream;
+
 import java.io.*;
 import java.nio.file.*;
 import java.text.SimpleDateFormat;
 import java.util.*;
-import java.util.stream.Collectors;
-import java.util.zip.*;
+import java.util.concurrent.*;
 
 /**
- * iRODS Performance Test - Optimized for large files (100MB+)
+ * iRODS Performance Test - Adaptive Compression with Zstandard (zstd-jni)
+ *
+ * Changes:
+ *  - Replaced gzip with zstd (ZstdOutputStream / ZstdInputStream)
+ *  - Increased BUFFER_SIZE to 2 MB (tunable)
+ *  - Kept parallel transfer disabled to match Python benchmark
+ *
+ * Notes:
+ *  - Tune OS TCP socket buffers for best results (sysctl) or set socket buffer
+ *    on the RcComm socket if API exposes it.
  */
 public class IrodsPerformanceTest1 {
 
+    // ==================== CONFIGURATION ====================
     private static final int TEST_RUNS = 3;
-    private static final String TEST_FILES_DIR = "/home/mmuramoto/testfiles";
-    private static final boolean ENABLE_COMPRESSION = true;
+    private static final int MAX_THREADS = 4;
+
+    // Buffer size - tuned for your ~100-130 Mbps link and cross-country latency
+    // Increase to 4*1024*1024 if you want to experiment further.
+    private static final int BUFFER_SIZE = 2 * 1024 * 1024; // 2 MB
+
+    // Compression settings
+    private static final boolean ENABLE_ADAPTIVE = true;  // Set to false for manual compression level
+    private static final boolean ENABLE_COMPRESSION = false;
+    private static final int MANUAL_COMPRESSION_LEVEL = 3; // 1=fastest, 22=highest
+
     private static final String RESULTS_DIR = "./performance_results";
-    
-    // Optimized buffer settings for large files
-    private static final int BUFFER_SIZE = 256 * 1024; // 256 KB - larger buffer for throughput
-    private static final long PROGRESS_UPDATE_INTERVAL_MS = 500;
-    private static final int PROGRESS_BAR_WIDTH = 50;
-    
-    // Filter out problem files
-    private static final String[] EXCLUDE_PATTERNS = {".Identifier", ".DS_Store", "Thumbs.db"};
+    private static final String TEST_FILES_DIR = "/home/mmuramoto/testfiles";
+    // =======================================================
 
     private static final String RED = "\033[0;31m", GREEN = "\033[0;32m",
-                                YELLOW = "\033[1;33m", CYAN = "\033[0;36m", 
-                                BLUE = "\033[0;34m", NC = "\033[0m";
+            YELLOW = "\033[1;33m", CYAN = "\033[0;36m", NC = "\033[0m";
+
+    private static int compressionLevel = 3; // Will be set by adaptive or manual setting
 
     public static void main(String[] args) {
         log(GREEN, "=".repeat(80));
-        log(GREEN, "iRODS Performance Test - Large File Optimized");
+        log(GREEN, "iRODS Performance Test - Adaptive Compression (zstd)");
+        log(GREEN, "Optimized for Cross-Country Transfers (CA → NC)");
         log(GREEN, "=".repeat(80));
+
+        System.out.println("\n📊 Configuration:");
+        System.out.println("  Buffer size: " + formatSize(BUFFER_SIZE) + " (optimized for high latency)");
+        System.out.println("  Parallel transfer: DISABLED (to match Python)");
+        System.out.println("  Compression: " + (ENABLE_COMPRESSION ? "ENABLED (zstd)" : "DISABLED"));
+        System.out.println("  Adaptive mode: " + (ENABLE_ADAPTIVE ? "ENABLED" : "MANUAL level " + MANUAL_COMPRESSION_LEVEL));
 
         try {
             Config config = loadConfig();
             List<File> testFiles = getTestFiles();
 
             log(CYAN, String.format("\nFound %d test file(s):", testFiles.size()));
-            testFiles.forEach(f -> System.out.println("  - " + f.getName() + " (" + formatSize(f.length()) + ")"));
-            
-            long totalSize = testFiles.stream().mapToLong(File::length).sum();
+            long totalSize = 0;
+            for (File f : testFiles) {
+                System.out.println("  - " + f.getName() + " (" + formatSize(f.length()) + ")");
+                totalSize += f.length();
+            }
             System.out.println("  Total size: " + formatSize(totalSize));
 
             IRODSConnection conn = connect(config);
             RcComm rcComm = conn.getRcComm();
-
             log(GREEN, "✓ Connected as " + config.username + "@" + config.zone);
+
+            // OPTIONAL: set socket buffer sizes if RcComm exposes the Socket.
+            // Some iRODS client implementations let you access the socket; if you can,
+            // set send/receive buffer sizes to BUFFER_SIZE or larger:
+            //
+            // try {
+            //     Socket sock = rcComm.getSocket(); // pseudo-code: only if API allows
+            //     sock.setSendBufferSize(BUFFER_SIZE);
+            //     sock.setReceiveBufferSize(BUFFER_SIZE);
+            // } catch (Exception e) {
+            //     // ignore if not available
+            // }
+            //
+            // Otherwise tune OS with sysctl:
+            // sudo sysctl -w net.core.rmem_max=16777216
+            // sudo sysctl -w net.core.wmem_max=16777216
+            // sudo sysctl -w net.ipv4.tcp_rmem="4096 87380 16777216"
+            // sudo sysctl -w net.ipv4.tcp_wmem="4096 65536 16777216"
+
             verifyConnection(rcComm, config);
 
-            List<Result> results = runTests(rcComm, config, testFiles);
-            
-            if (results.isEmpty()) {
-                log(RED, "\nNo successful tests completed!");
-            } else {
-                String outputFile = saveResults(config, results);
-                displaySummary(results, outputFile);
+            // --- Network speed test (always run for informational purposes) ---
+            double avgSpeed = 0;
+            if (ENABLE_ADAPTIVE || !ENABLE_COMPRESSION) {
+                avgSpeed = testNetworkSpeed(rcComm, config, 5, 2);
             }
 
+            // --- Adaptive compression ---
+            if (ENABLE_ADAPTIVE && ENABLE_COMPRESSION) {
+                compressionLevel = selectCompressionLevel(avgSpeed);
+            } else if (ENABLE_COMPRESSION) {
+                compressionLevel = MANUAL_COMPRESSION_LEVEL;
+                log(CYAN, String.format("\nUsing manual compression level: %d", compressionLevel));
+            } else {
+                log(YELLOW, "\nCompression DISABLED - transferring uncompressed files");
+            }
+
+            List<Result> results = runTests(rcComm, config, testFiles);
+            String outputFile = saveResults(config, results);
+
+            displaySummary(results, outputFile);
             conn.disconnect();
 
         } catch (Exception e) {
@@ -77,223 +131,350 @@ public class IrodsPerformanceTest1 {
         log(GREEN, "=".repeat(80));
     }
 
-    private static List<Result> runTests(RcComm rcComm, Config config, List<File> testFiles) {
+    // --------------------------------------------------------------------------------------------
+    // Adaptive Compression Logic
+    // --------------------------------------------------------------------------------------------
+
+    private static double testNetworkSpeed(RcComm rcComm, Config config, int testFileSizeMB, int samples) throws Exception {
+        log(YELLOW, "\nTesting network speed (" + samples + " samples of " + testFileSizeMB + "MB)...");
+        double totalUpload = 0, totalDownload = 0;
+
+        for (int i = 0; i < samples; i++) {
+            File testFile = File.createTempFile("irods_speedtest_", ".dat");
+            byte[] data = new byte[testFileSizeMB * 1024 * 1024];
+            new Random().nextBytes(data);
+            Files.write(testFile.toPath(), data);
+
+            String irodsPath = config.homeDir + "/.speedtest_" + System.currentTimeMillis();
+
+            long startUp = System.nanoTime();
+            try (FileInputStream in = new FileInputStream(testFile);
+                 IRODSDataObjectOutputStream out = new IRODSDataObjectOutputStream(rcComm, irodsPath, false, false)) {
+                copy(in, out);
+            }
+            double upTime = (System.nanoTime() - startUp) / 1e9;
+            double upMBps = testFileSizeMB / upTime;
+            totalUpload += upMBps;
+
+            File download = File.createTempFile("irods_speedtest_dl_", ".dat");
+            long startDown = System.nanoTime();
+            try (IRODSDataObjectInputStream in = new IRODSDataObjectInputStream(rcComm, irodsPath);
+                 FileOutputStream out = new FileOutputStream(download)) {
+                copy(in, out);
+            }
+            double downTime = (System.nanoTime() - startDown) / 1e9;
+            double downMBps = testFileSizeMB / downTime;
+            totalDownload += downMBps;
+
+            System.out.printf("Sample %d: Up %.2f MB/s, Down %.2f MB/s%n", i + 1, upMBps, downMBps);
+
+            testFile.delete();
+            download.delete();
+            IRODSFilesystem.remove(rcComm, irodsPath);
+        }
+
+        double avgSpeed = (totalUpload + totalDownload) / (2 * samples);
+        System.out.printf("→ Average network speed: %.2f MB/s%n", avgSpeed);
+        return avgSpeed;
+    }
+
+    private static int selectCompressionLevel(double speed) {
+        log(CYAN, "\nAdaptive Compression Selection:");
+        System.out.printf("  Network speed: %.2f MB/s%n", speed);
+
+        int level;
+        String rationale;
+        if (speed >= 100) {
+            level = 1;
+            rationale = "Very fast network (>100 MB/s): minimal compression";
+        } else if (speed >= 50) {
+            level = 3;
+            rationale = "Fast network (50-100 MB/s): light compression";
+        } else if (speed >= 10) {
+            level = 6;
+            rationale = "Medium network (10-50 MB/s): balanced compression";
+        } else if (speed >= 1) {
+            level = 9;
+            rationale = "Slow network (1-10 MB/s): high compression";
+        } else {
+            level = 15;
+            rationale = "Very slow network (<1 MB/s): maximum compression";
+        }
+
+        System.out.printf("  Selected level: %d%n", level);
+        System.out.printf("  Rationale: %s%n", rationale);
+        return level;
+    }
+
+    // --------------------------------------------------------------------------------------------
+    // Core Benchmark Logic
+    // --------------------------------------------------------------------------------------------
+
+    private static List<Result> runTests(RcComm rcComm, Config config, List<File> testFiles)
+            throws InterruptedException, ExecutionException {
+
         List<Result> results = new ArrayList<>();
 
-        log(YELLOW, String.format("\nRunning %d test iterations (sequential for large files)...", TEST_RUNS));
+        log(YELLOW, String.format("\nRunning %d test iterations...", TEST_RUNS));
 
         for (int run = 1; run <= TEST_RUNS; run++) {
             log(CYAN, String.format("\n--- Run %d/%d ---", run, TEST_RUNS));
-            
             for (File testFile : testFiles) {
                 try {
-                    System.out.println(); // Space before each test
-                    Result result = performTest(rcComm, config, testFile, run);
-                    results.add(result);
-                    
-                    log(GREEN, String.format("✓ Run %d/%d [%s]: Upload %.2fs (%.2f MB/s), Download %.2fs (%.2f MB/s)", 
-                        run, TEST_RUNS, truncate(testFile.getName(), 30), 
-                        result.uploadTime, result.uploadThroughput(), 
-                        result.downloadTime, result.downloadThroughput()));
-                        
+                    Result r = performTest(rcComm, config, testFile, run);
+                    results.add(r);
+                    log(GREEN, String.format("✓ Run %d/%d [%s]: Upload %s (%.2f MB/s), Download %s (%.2f MB/s)",
+                            r.run, TEST_RUNS, truncate(r.filename, 30),
+                            formatTime(r.uploadTime), r.uploadThroughput(),
+                            formatTime(r.downloadTime), r.downloadThroughput()));
                 } catch (Exception e) {
-                    log(RED, String.format("✗ Run %d/%d [%s]: FAILED - %s", 
-                        run, TEST_RUNS, testFile.getName(), e.getMessage()));
-                    e.printStackTrace();
+                    log(RED, String.format("✗ Run %d/%d [%s]: FAILED - %s",
+                            run, TEST_RUNS, testFile.getName(), e.getMessage()));
                 }
             }
         }
-        
+
         return results;
     }
 
     private static Result performTest(RcComm rcComm, Config config, File testFile, int run) throws Exception {
         String filename = testFile.getName();
-        long originalSize = testFile.length();
-
+        long size = testFile.length();
         File uploadFile = testFile;
-        double compressTime = 0;
+        double compTime = 0;
 
-        // Only compress small files
-        if (ENABLE_COMPRESSION && originalSize < 50 * 1024 * 1024) {
-            log(YELLOW, "  Compressing...");
+        if (ENABLE_COMPRESSION) {
+            System.out.println("\n  Compressing (level " + compressionLevel + ")...");
             long start = System.nanoTime();
-            uploadFile = compress(testFile);
-            compressTime = (System.nanoTime() - start) / 1e9;
-            log(GREEN, String.format("  ✓ Compressed: %s -> %s (%.1f%% reduction)", 
-                formatSize(originalSize), formatSize(uploadFile.length()),
-                (1.0 - (double)uploadFile.length()/originalSize) * 100));
+            uploadFile = compressToZst(testFile, compressionLevel);
+            compTime = (System.nanoTime() - start) / 1e9;
+            log(GREEN, String.format("  ✓ Compressed: %s -> %s (%.1f%% reduction, %s)",
+                    formatSize(size), formatSize(uploadFile.length()),
+                    (1 - (double) uploadFile.length() / size) * 100,
+                    formatTime(compTime)));
         }
 
-        long transferSize = uploadFile.length();
-        String irodsPath = config.homeDir + "/benchmark_" + filename + "_" + System.currentTimeMillis();
+        String irodsPath = config.homeDir + "/bench_" + filename + "_" + System.currentTimeMillis();
 
-        // Upload with progress and flush
-        System.out.println(CYAN + "  Uploading " + filename + " (" + formatSize(transferSize) + ")..." + NC);
-        long uploadStart = System.nanoTime();
-        
+        System.out.println("  Uploading " + filename + " (" + formatSize(uploadFile.length()) + ")...");
+        long startUp = System.nanoTime();
         try (FileInputStream in = new FileInputStream(uploadFile);
              IRODSDataObjectOutputStream out = new IRODSDataObjectOutputStream(rcComm, irodsPath, false, false)) {
-            copyWithProgress(in, out, transferSize, "Upload");
-            out.flush(); // Ensure all data is sent
+            copyWithProgress(in, out, uploadFile.length(), "Upload");
         }
-        
-        double uploadTime = (System.nanoTime() - uploadStart) / 1e9;
-        clearProgressLine();
+        double uploadTime = (System.nanoTime() - startUp) / 1e9;
+        clearLine();
 
-        // Small delay to let server finish processing
-        Thread.sleep(100);
-
-        // Download with progress
-        System.out.println(CYAN + "  Downloading " + filename + "..." + NC);
-        File downloadFile = File.createTempFile("irods_dl_", ".tmp");
-        long downloadStart = System.nanoTime();
-        
+        System.out.println("  Downloading " + filename + "...");
+        File downloadFile = File.createTempFile("irods_dl", ".zst");
+        long startDown = System.nanoTime();
         try (IRODSDataObjectInputStream in = new IRODSDataObjectInputStream(rcComm, irodsPath);
              FileOutputStream out = new FileOutputStream(downloadFile)) {
-            copyWithProgress(in, out, transferSize, "Download");
-            out.flush();
+            copyWithProgress(in, out, uploadFile.length(), "Download");
         }
-        
-        double downloadTime = (System.nanoTime() - downloadStart) / 1e9;
-        clearProgressLine();
+        double downloadTime = (System.nanoTime() - startDown) / 1e9;
+        clearLine();
 
-        // Verify file sizes match
-        long downloadedSize = downloadFile.length();
-        if (downloadedSize != transferSize) {
-            throw new IOException(String.format("Size mismatch! Expected %d bytes, got %d bytes", 
-                transferSize, downloadedSize));
-        }
-
-        // Decompression
-        double decompressTime = 0;
-        if (ENABLE_COMPRESSION && uploadFile != testFile) {
-            log(YELLOW, "  Decompressing...");
-            long start = System.nanoTime();
-            File decompressed = decompress(downloadFile);
-            decompressTime = (System.nanoTime() - start) / 1e9;
-            
-            // Verify original size
-            if (decompressed.length() != originalSize) {
-                throw new IOException(String.format("Decompressed size mismatch! Expected %d bytes, got %d bytes",
-                    originalSize, decompressed.length()));
-            }
-            decompressed.delete();
-        }
+        // Optional: decompress downloaded file for verification (not timed here)
+        // File decompressed = File.createTempFile("irods_decomp", ".bin");
+        // decompressZst(downloadFile, decompressed);
+        // verify or delete decompressed
 
         // Cleanup
         downloadFile.delete();
-        if (ENABLE_COMPRESSION && uploadFile != testFile) {
-            uploadFile.delete();
-        }
-        
-        // Remove from iRODS
-        try {
-            IRODSFilesystem.remove(rcComm, irodsPath);
-        } catch (Exception e) {
-            log(YELLOW, "  Warning: Could not remove " + irodsPath + ": " + e.getMessage());
-        }
+        if (ENABLE_COMPRESSION && uploadFile != testFile) uploadFile.delete();
+        IRODSFilesystem.remove(rcComm, irodsPath);
 
-        return new Result(run, filename, originalSize, transferSize, uploadTime, downloadTime, compressTime, decompressTime);
+        return new Result(run, filename, size, uploadFile.length(), uploadTime, downloadTime, compTime);
     }
 
-    private static void copyWithProgress(InputStream in, OutputStream out, long totalSize, String operation) throws IOException {
-        byte[] buffer = new byte[BUFFER_SIZE];
-        long totalRead = 0;
-        int len;
-        long lastUpdate = System.currentTimeMillis();
-        long startTime = System.currentTimeMillis();
-        int stuckCounter = 0;
-        long lastTotalRead = 0;
+    // --------------------------------------------------------------------------------------------
+    // I/O helpers
+    // --------------------------------------------------------------------------------------------
 
-        while ((len = in.read(buffer)) != -1) {
-            out.write(buffer, 0, len);
-            totalRead += len;
+    private static void copy(InputStream in, OutputStream out) throws IOException {
+        byte[] buf = new byte[BUFFER_SIZE];
+        int len;
+        while ((len = in.read(buf)) != -1) out.write(buf, 0, len);
+    }
+
+    private static void copyWithProgress(InputStream in, OutputStream out, long total, String label) throws IOException {
+        byte[] buf = new byte[BUFFER_SIZE];
+        long transferred = 0;
+        int len;
+        long lastPrint = System.currentTimeMillis();
+        long startTime = System.currentTimeMillis();
+
+        while ((len = in.read(buf)) != -1) {
+            out.write(buf, 0, len);
+            transferred += len;
 
             long now = System.currentTimeMillis();
-            if (now - lastUpdate >= PROGRESS_UPDATE_INTERVAL_MS || totalRead == totalSize) {
-                double progress = (double) totalRead / totalSize;
-                double elapsedSeconds = (now - startTime) / 1000.0;
-                double speed = elapsedSeconds > 0 ? (totalRead / 1024.0 / 1024.0) / elapsedSeconds : 0;
-                
-                // Check if transfer is stuck
-                if (totalRead == lastTotalRead) {
-                    stuckCounter++;
-                    if (stuckCounter > 10) { // Stuck for 5+ seconds
-                        throw new IOException("Transfer appears stuck - no progress for 5 seconds");
-                    }
-                } else {
-                    stuckCounter = 0;
-                }
-                lastTotalRead = totalRead;
-                
-                printProgress(operation, progress, totalRead, totalSize, speed);
-                lastUpdate = now;
+            if (now - lastPrint > 500 || transferred == total) {
+                double percent = (100.0 * transferred / total);
+                double elapsed = (now - startTime) / 1000.0;
+                double speed = elapsed > 0 ? (transferred / 1024.0 / 1024.0) / elapsed : 0;
+
+                int barWidth = 50;
+                int filled = (int)(percent / 2);
+                String bar = "=".repeat(Math.max(0, filled)) + ">" + " ".repeat(Math.max(0, barWidth - filled - 1));
+
+                System.out.printf("\r  %s: [%s] %.1f%% (%.2f MB / %.2f MB) %.2f MB/s    ",
+                        label, bar, percent,
+                        transferred / 1024.0 / 1024.0,
+                        total / 1024.0 / 1024.0,
+                        speed);
+                System.out.flush();
+                lastPrint = now;
             }
         }
-        
-        // Final progress update
-        if (totalRead > 0) {
-            double elapsedSeconds = (System.currentTimeMillis() - startTime) / 1000.0;
-            double speed = elapsedSeconds > 0 ? (totalRead / 1024.0 / 1024.0) / elapsedSeconds : 0;
-            printProgress(operation, 1.0, totalRead, totalSize, speed);
-        }
     }
 
-    private static void printProgress(String operation, double progress, long current, long total, double speedMBps) {
-        int progressChars = (int) (PROGRESS_BAR_WIDTH * progress);
-        int remaining = PROGRESS_BAR_WIDTH - progressChars;
-
-        StringBuilder bar = new StringBuilder();
-        bar.append("\r  ").append(operation).append(": [");
-        bar.append(GREEN).append("=".repeat(Math.max(0, progressChars)));
-        if (remaining > 0 && progress < 1.0) {
-            bar.append(">").append(" ".repeat(Math.max(0, remaining - 1)));
-        } else if (remaining > 0) {
-            bar.append(" ".repeat(remaining));
-        }
-        bar.append(NC).append("] ");
-        bar.append(String.format("%.1f%% ", progress * 100));
-        bar.append(String.format("(%s / %s) ", formatSize(current), formatSize(total)));
-        bar.append(String.format("%.2f MB/s", speedMBps));
-        
-        // Add spaces to clear any leftover characters
-        bar.append("    ");
-
-        System.out.print(bar.toString());
-        System.out.flush();
-    }
-
-    private static void clearProgressLine() {
+    private static void clearLine() {
         System.out.print("\r" + " ".repeat(120) + "\r");
         System.out.flush();
     }
 
-    private static File compress(File input) throws IOException {
-        File output = File.createTempFile("irods_gz_", ".gz");
-        try (FileInputStream in = new FileInputStream(input);
-             GZIPOutputStream out = new GZIPOutputStream(new FileOutputStream(output))) {
-            byte[] buffer = new byte[BUFFER_SIZE];
+    // --------------------------------------------------------------------------------------------
+    // Zstd compression / decompression
+    // --------------------------------------------------------------------------------------------
+
+    private static File compressToZst(File input, int zstdLevel) throws IOException {
+        File output = File.createTempFile("irods_zst", ".zst");
+        try (FileInputStream fis = new FileInputStream(input);
+             BufferedInputStream bis = new BufferedInputStream(fis, BUFFER_SIZE);
+             FileOutputStream fos = new FileOutputStream(output);
+             BufferedOutputStream bos = new BufferedOutputStream(fos, BUFFER_SIZE);
+             ZstdOutputStream zOut = new ZstdOutputStream(bos, zstdLevel)) {
+            // copy using same sized buffer
+            byte[] buf = new byte[BUFFER_SIZE];
             int len;
-            while ((len = in.read(buffer)) != -1) {
-                out.write(buffer, 0, len);
+            while ((len = bis.read(buf)) != -1) {
+                zOut.write(buf, 0, len);
             }
+            zOut.flush();
         }
         return output;
     }
 
-    private static File decompress(File input) throws IOException {
-        File output = File.createTempFile("irods_decomp_", ".tmp");
-        try (GZIPInputStream in = new GZIPInputStream(new FileInputStream(input));
-             FileOutputStream out = new FileOutputStream(output)) {
-            byte[] buffer = new byte[BUFFER_SIZE];
+    private static void decompressZst(File compressed, File output) throws IOException {
+        try (FileInputStream fis = new FileInputStream(compressed);
+             BufferedInputStream bis = new BufferedInputStream(fis, BUFFER_SIZE);
+             ZstdInputStream zIn = new ZstdInputStream(bis);
+             FileOutputStream fos = new FileOutputStream(output);
+             BufferedOutputStream bos = new BufferedOutputStream(fos, BUFFER_SIZE)) {
+            byte[] buf = new byte[BUFFER_SIZE];
             int len;
-            while ((len = in.read(buffer)) != -1) {
-                out.write(buffer, 0, len);
+            while ((len = zIn.read(buf)) != -1) {
+                bos.write(buf, 0, len);
+            }
+            bos.flush();
+        }
+    }
+
+    // --------------------------------------------------------------------------------------------
+    // Results/IO/utility methods
+    // --------------------------------------------------------------------------------------------
+
+    private static String saveResults(Config config, List<Result> results) throws IOException {
+        new File(RESULTS_DIR).mkdirs();
+        String timestamp = new SimpleDateFormat("yyyy-MM-dd_HH-mm-ss").format(new Date());
+        String filename = String.format("%s/irods4j_adaptive_%s_%s.txt",
+                RESULTS_DIR, ENABLE_COMPRESSION ? "compressed" : "uncompressed", timestamp);
+
+        try (PrintWriter w = new PrintWriter(filename)) {
+            w.println("iRODS Adaptive Compression Benchmark Results");
+            w.println("=".repeat(80));
+            w.println("Date: " + new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new Date()));
+            w.println("User: " + config.username + "@" + config.zone);
+            w.println("Host: " + config.host + ":" + config.port);
+            w.println("Buffer size: " + formatSize(BUFFER_SIZE));
+            w.println("Compression: " + (ENABLE_COMPRESSION ? "ENABLED (Level " + compressionLevel + ")" : "DISABLED"));
+            w.println("Total runs: " + results.size());
+            w.println();
+
+            double avgUpload = results.stream().mapToDouble(r -> r.uploadTime).average().orElse(0);
+            double avgDownload = results.stream().mapToDouble(r -> r.downloadTime).average().orElse(0);
+            double avgCompress = results.stream().mapToDouble(r -> r.compressTime).average().orElse(0);
+            double avgUpTput = results.stream().mapToDouble(Result::uploadThroughput).average().orElse(0);
+            double avgDownTput = results.stream().mapToDouble(Result::downloadThroughput).average().orElse(0);
+
+            w.println("Summary:");
+            w.println("-".repeat(80));
+            w.printf("Average compression:  %s%n", formatTime(avgCompress));
+            w.printf("Average upload:       %s (%.2f MB/s)%n", formatTime(avgUpload), avgUpTput);
+            w.printf("Average download:     %s (%.2f MB/s)%n", formatTime(avgDownload), avgDownTput);
+            w.printf("Total round-trip:     %s%n", formatTime(avgCompress + avgUpload + avgDownload));
+            w.println();
+
+            w.println("Detailed Results:");
+            w.println("-".repeat(80));
+            w.println("Run | File | Size | Comp | Upload | Download | U-Tput | D-Tput");
+            w.println("-".repeat(80));
+
+            for (Result r : results) {
+                w.printf("%3d | %-30s | %10s | %s | %s | %s | %7.2f | %7.2f%n",
+                        r.run, truncate(r.filename, 30), formatSize(r.originalSize),
+                        formatTime(r.compressTime), formatTime(r.uploadTime), formatTime(r.downloadTime),
+                        r.uploadThroughput(), r.downloadThroughput());
+            }
+
+            // Per-file statistics
+            w.println();
+            w.println("Per-File Averages:");
+            w.println("-".repeat(80));
+            w.println("File | Runs | Avg Upload | Avg Download | Avg U-Tput | Avg D-Tput");
+            w.println("-".repeat(80));
+
+            // Group by filename
+            java.util.Map<String, java.util.List<Result>> fileGroups = new java.util.HashMap<>();
+            for (Result r : results) {
+                fileGroups.computeIfAbsent(r.filename, k -> new java.util.ArrayList<>()).add(r);
+            }
+
+            for (java.util.Map.Entry<String, java.util.List<Result>> entry : fileGroups.entrySet()) {
+                String fname = entry.getKey();
+                java.util.List<Result> fileResults = entry.getValue();
+
+                double avgUpTime = fileResults.stream().mapToDouble(r -> r.uploadTime).average().orElse(0);
+                double avgDownTime = fileResults.stream().mapToDouble(r -> r.downloadTime).average().orElse(0);
+                double fileavgUpTput = fileResults.stream().mapToDouble(Result::uploadThroughput).average().orElse(0);
+                double fileavgDownTput = fileResults.stream().mapToDouble(Result::downloadThroughput).average().orElse(0);
+
+                w.printf("%-30s | %4d | %10s | %10s | %10.2f | %10.2f%n",
+                        truncate(fname, 30), fileResults.size(),
+                        formatTime(avgUpTime), formatTime(avgDownTime),
+                        fileavgUpTput, fileavgDownTput);
             }
         }
-        return output;
+        return filename;
     }
+
+    private static void displaySummary(List<Result> results, String outputFile) {
+        System.out.println();
+        log(GREEN, "=".repeat(80));
+        log(GREEN, "BENCHMARK RESULTS SUMMARY");
+        log(GREEN, "=".repeat(80));
+
+        double avgUpload = results.stream().mapToDouble(r -> r.uploadTime).average().orElse(0);
+        double avgDownload = results.stream().mapToDouble(r -> r.downloadTime).average().orElse(0);
+        double avgCompress = results.stream().mapToDouble(r -> r.compressTime).average().orElse(0);
+        double avgUpTput = results.stream().mapToDouble(Result::uploadThroughput).average().orElse(0);
+        double avgDownTput = results.stream().mapToDouble(Result::downloadThroughput).average().orElse(0);
+
+        System.out.println("Buffer size: " + formatSize(BUFFER_SIZE));
+        System.out.println("Compression level used: " + compressionLevel);
+        System.out.println("Successful runs: " + results.size());
+        System.out.printf("Average compression time: %s%n", formatTime(avgCompress));
+        System.out.printf("Average upload time:      %s (%.2f MB/s)%n", formatTime(avgUpload), avgUpTput);
+        System.out.printf("Average download time:    %s (%.2f MB/s)%n", formatTime(avgDownload), avgDownTput);
+        System.out.printf("Total round-trip time:    %s%n", formatTime(avgCompress + avgUpload + avgDownload));
+        log(GREEN, "\nResults saved to: " + outputFile);
+    }
+
+    // --------------------------------------------------------------------------------------------
+    // Utility Methods (connect, verify, loadConfig, getTestFiles, helpers)
+    // --------------------------------------------------------------------------------------------
 
     private static IRODSConnection connect(Config config) throws Exception {
         IRODSConnection conn = new IRODSConnection();
@@ -308,9 +489,7 @@ public class IrodsPerformanceTest1 {
         String testPath = config.homeDir + "/.test_" + System.currentTimeMillis();
         try (IRODSDataObjectOutputStream out = new IRODSDataObjectOutputStream(rcComm, testPath, false, false)) {
             out.write("test".getBytes());
-            out.flush();
         }
-        Thread.sleep(100);
         IRODSFilesystem.remove(rcComm, testPath);
         log(GREEN, "✓ Connection verified");
     }
@@ -319,10 +498,9 @@ public class IrodsPerformanceTest1 {
         String envFile = System.getenv().getOrDefault("IRODS_ENVIRONMENT_FILE",
                 System.getProperty("user.home") + "/.irods/irods_environment.json");
 
-        Properties props = new Properties();
         String content = new String(Files.readAllBytes(Paths.get(envFile)))
                 .replaceAll("[{}\"]", "").replaceAll("\\s+", "");
-
+        Properties props = new Properties();
         for (String line : content.split(",")) {
             if (line.contains(":")) {
                 String[] parts = line.split(":", 2);
@@ -330,103 +508,37 @@ public class IrodsPerformanceTest1 {
             }
         }
 
-        Config config = new Config();
-        config.host = props.getProperty("irods_host");
-        config.port = Integer.parseInt(props.getProperty("irods_port", "1247"));
-        config.username = props.getProperty("irods_user_name");
-        config.zone = props.getProperty("irods_zone_name");
-        config.homeDir = props.getProperty("irods_home", "/" + config.zone + "/home/" + config.username);
-        config.password = "usfusf";
-        return config;
+        Config c = new Config();
+        c.host = props.getProperty("irods_host");
+        c.port = Integer.parseInt(props.getProperty("irods_port", "1247"));
+        c.username = props.getProperty("irods_user_name");
+        c.zone = props.getProperty("irods_zone_name");
+        c.homeDir = props.getProperty("irods_home", "/" + c.zone + "/home/" + c.username);
+        c.password = "usfusf";
+        return c;
     }
 
     private static List<File> getTestFiles() {
         File dir = new File(TEST_FILES_DIR);
         if (!dir.exists()) throw new RuntimeException("Test files directory not found: " + TEST_FILES_DIR);
+        File[] files = dir.listFiles(File::isFile);
+        if (files == null || files.length == 0) throw new RuntimeException("No files found in " + TEST_FILES_DIR);
 
-        List<File> files = Arrays.stream(dir.listFiles())
-            .filter(File::isFile)
-            .filter(f -> {
-                // Exclude problematic files
-                for (String pattern : EXCLUDE_PATTERNS) {
-                    if (f.getName().contains(pattern)) {
-                        return false;
-                    }
-                }
-                return true;
-            })
-            .sorted(Comparator.comparingLong(File::length)) // Start with smallest files
-            .collect(Collectors.toList());
-            
-        if (files.isEmpty()) throw new RuntimeException("No files found in " + TEST_FILES_DIR);
-        return files;
-    }
-
-    private static String saveResults(Config config, List<Result> results) throws IOException {
-        new File(RESULTS_DIR).mkdirs();
-        String timestamp = new SimpleDateFormat("yyyy-MM-dd_HH-mm-ss").format(new Date());
-        String filename = String.format("%s/irods4j_benchmark_%s_%s.txt",
-                RESULTS_DIR, ENABLE_COMPRESSION ? "compressed" : "uncompressed", timestamp);
-
-        try (PrintWriter w = new PrintWriter(filename)) {
-            w.println("iRODS Performance Test Results");
-            w.println("=".repeat(80));
-            w.println("Date: " + new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new Date()));
-            w.println("User: " + config.username + "@" + config.zone);
-            w.println("Host: " + config.host + ":" + config.port);
-            w.println("Compression: " + (ENABLE_COMPRESSION ? "ENABLED" : "DISABLED"));
-            w.println("Buffer size: " + formatSize(BUFFER_SIZE));
-            w.println("Total runs: " + results.size());
-            w.println();
-
-            double avgUpload = results.stream().mapToDouble(r -> r.uploadTime).average().orElse(0);
-            double avgDownload = results.stream().mapToDouble(r -> r.downloadTime).average().orElse(0);
-            double avgUpTput = results.stream().mapToDouble(Result::uploadThroughput).average().orElse(0);
-            double avgDownTput = results.stream().mapToDouble(Result::downloadThroughput).average().orElse(0);
-
-            w.println("Summary:");
-            w.println("-".repeat(80));
-            w.printf("Average upload:   %.3fs (%.2f MB/s)%n", avgUpload, avgUpTput);
-            w.printf("Average download: %.3fs (%.2f MB/s)%n", avgDownload, avgDownTput);
-            w.println();
-
-            w.println("Detailed Results:");
-            w.println("-".repeat(80));
-            w.println("Run | File | Size | Upload | Download | U-Tput | D-Tput");
-            w.println("-".repeat(80));
-
-            for (Result r : results) {
-                w.printf("%3d | %-30s | %10s | %7.2fs | %7.2fs | %7.2f | %7.2f%n",
-                        r.run, truncate(r.filename, 30), formatSize(r.originalSize),
-                        r.uploadTime, r.downloadTime, r.uploadThroughput(), r.downloadThroughput());
+        // Filter out system files
+        List<File> filtered = new ArrayList<>();
+        for (File f : files) {
+            if (!f.getName().contains(".Identifier") && !f.getName().startsWith(".")) {
+                filtered.add(f);
             }
         }
-        return filename;
-    }
 
-    private static void displaySummary(List<Result> results, String outputFile) {
-        System.out.println();
-        log(GREEN, "=".repeat(80));
-        log(GREEN, "Test Summary");
-        log(GREEN, "=".repeat(80));
-
-        double avgUpload = results.stream().mapToDouble(r -> r.uploadTime).average().orElse(0);
-        double avgDownload = results.stream().mapToDouble(r -> r.downloadTime).average().orElse(0);
-        double avgUpTput = results.stream().mapToDouble(Result::uploadThroughput).average().orElse(0);
-        double avgDownTput = results.stream().mapToDouble(Result::downloadThroughput).average().orElse(0);
-
-        System.out.println("Successful runs: " + results.size());
-        System.out.printf("Average upload:   %.2fs (%.2f MB/s)%n", avgUpload, avgUpTput);
-        System.out.printf("Average download: %.2fs (%.2f MB/s)%n", avgDownload, avgDownTput);
-        log(GREEN, "\nResults saved to: " + outputFile);
-    }
-
-    private static void log(String color, String message) {
-        System.out.println(color + message + NC);
+        // Sort by size (smallest first)
+        filtered.sort(Comparator.comparingLong(File::length));
+        return filtered;
     }
 
     private static String formatSize(long bytes) {
-        String[] units = {"B", "KB", "MB", "GB", "TB"};
+        String[] units = {"B", "KB", "MB", "GB"};
         double size = bytes;
         int i = 0;
         while (size >= 1024 && i < units.length - 1) {
@@ -436,8 +548,27 @@ public class IrodsPerformanceTest1 {
         return String.format("%.2f %s", size, units[i]);
     }
 
+    private static String formatTime(double seconds) {
+        if (seconds < 60) {
+            return String.format("%.2fs", seconds);
+        } else if (seconds < 3600) {
+            int mins = (int)(seconds / 60);
+            double secs = seconds % 60;
+            return String.format("%dm %.2fs", mins, secs);
+        } else {
+            int hours = (int)(seconds / 3600);
+            int mins = (int)((seconds % 3600) / 60);
+            double secs = seconds % 60;
+            return String.format("%dh %dm %.2fs", hours, mins, secs);
+        }
+    }
+
     private static String truncate(String s, int len) {
         return s.length() > len ? s.substring(0, len - 3) + "..." : s;
+    }
+
+    private static void log(String color, String message) {
+        System.out.println(color + message + NC);
     }
 
     static class Config {
@@ -449,10 +580,10 @@ public class IrodsPerformanceTest1 {
         int run;
         String filename;
         long originalSize, transferSize;
-        double uploadTime, downloadTime, compressTime, decompressTime;
+        double uploadTime, downloadTime, compressTime;
 
         Result(int run, String filename, long originalSize, long transferSize,
-               double uploadTime, double downloadTime, double compressTime, double decompressTime) {
+               double uploadTime, double downloadTime, double compressTime) {
             this.run = run;
             this.filename = filename;
             this.originalSize = originalSize;
@@ -460,15 +591,15 @@ public class IrodsPerformanceTest1 {
             this.uploadTime = uploadTime;
             this.downloadTime = downloadTime;
             this.compressTime = compressTime;
-            this.decompressTime = decompressTime;
         }
 
         double uploadThroughput() {
-            return (transferSize / 1024.0 / 1024.0) / uploadTime;
+            return (originalSize / 1024.0 / 1024.0) / uploadTime;
         }
 
         double downloadThroughput() {
-            return (transferSize / 1024.0 / 1024.0) / downloadTime;
+            return (originalSize / 1024.0 / 1024.0) / downloadTime;
         }
     }
 }
+

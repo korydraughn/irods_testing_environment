@@ -18,23 +18,37 @@ import java.util.zip.*;
  */
 public class IrodsPerformanceTest {
 
+    // ==================== CONFIGURATION ====================
     private static final int TEST_RUNS = 3;
     private static final int MAX_THREADS = 4;
-    private static final int BUFFER_SIZE = 128 * 1024;
-    private static final boolean ENABLE_ADAPTIVE = true;
-    private static final boolean ENABLE_COMPRESSION = true;
+    
+    // Buffer size - Optimized for cross-country transfers (CA → NC)
+    private static final int BUFFER_SIZE = 1 * 1024 * 1024; // 1 MB (optimal for high latency)
+    
+    // Compression settings
+    private static final boolean ENABLE_ADAPTIVE = true;  // Set to false for manual compression level
+    private static final boolean ENABLE_COMPRESSION = false;
+    private static final int MANUAL_COMPRESSION_LEVEL = 3; // Used when ENABLE_ADAPTIVE = false (1=fastest, 15=best)
+    
     private static final String RESULTS_DIR = "./performance_results";
     private static final String TEST_FILES_DIR = "/home/mmuramoto/testfiles";
+    // =======================================================
 
     private static final String RED = "\033[0;31m", GREEN = "\033[0;32m",
             YELLOW = "\033[1;33m", CYAN = "\033[0;36m", NC = "\033[0m";
 
-    private static int compressionLevel = 3;
+    private static int compressionLevel = 3; // Will be set by adaptive or manual setting
 
     public static void main(String[] args) {
         log(GREEN, "=".repeat(80));
         log(GREEN, "iRODS Performance Test - Adaptive Compression");
+        log(GREEN, "Optimized for Cross-Country Transfers (CA → NC)");
         log(GREEN, "=".repeat(80));
+
+        System.out.println("\n📊 Configuration:");
+        System.out.println("  Buffer size: " + formatSize(BUFFER_SIZE) + " (optimized for high latency)");
+        System.out.println("  Compression: " + (ENABLE_COMPRESSION ? "ENABLED" : "DISABLED"));
+        System.out.println("  Adaptive mode: " + (ENABLE_ADAPTIVE ? "ENABLED" : "MANUAL level " + MANUAL_COMPRESSION_LEVEL));
 
         try {
             Config config = loadConfig();
@@ -53,10 +67,20 @@ public class IrodsPerformanceTest {
             log(GREEN, "✓ Connected as " + config.username + "@" + config.zone);
             verifyConnection(rcComm, config);
 
+            // --- Network speed test (always run for informational purposes) ---
+            double avgSpeed = 0;
+            if (ENABLE_ADAPTIVE || !ENABLE_COMPRESSION) {
+                avgSpeed = testNetworkSpeed(rcComm, config, 5, 2);
+            }
+
             // --- Adaptive compression ---
             if (ENABLE_ADAPTIVE && ENABLE_COMPRESSION) {
-                double avgSpeed = testNetworkSpeed(rcComm, config, 5, 2);
                 compressionLevel = selectCompressionLevel(avgSpeed);
+            } else if (ENABLE_COMPRESSION) {
+                compressionLevel = MANUAL_COMPRESSION_LEVEL;
+                log(CYAN, String.format("\nUsing manual compression level: %d", compressionLevel));
+            } else {
+                log(YELLOW, "\nCompression DISABLED - transferring uncompressed files");
             }
 
             List<Result> results = runTests(rcComm, config, testFiles);
@@ -291,6 +315,7 @@ public class IrodsPerformanceTest {
             w.println("Date: " + new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new Date()));
             w.println("User: " + config.username + "@" + config.zone);
             w.println("Host: " + config.host + ":" + config.port);
+            w.println("Buffer size: " + formatSize(BUFFER_SIZE));
             w.println("Compression: " + (ENABLE_COMPRESSION ? "ENABLED (Level " + compressionLevel + ")" : "DISABLED"));
             w.println("Total runs: " + results.size());
             w.println();
@@ -320,6 +345,34 @@ public class IrodsPerformanceTest {
                         formatTime(r.compressTime), formatTime(r.uploadTime), formatTime(r.downloadTime),
                         r.uploadThroughput(), r.downloadThroughput());
             }
+            
+            // Per-file statistics
+            w.println();
+            w.println("Per-File Averages:");
+            w.println("-".repeat(80));
+            w.println("File | Runs | Avg Upload | Avg Download | Avg U-Tput | Avg D-Tput");
+            w.println("-".repeat(80));
+            
+            // Group by filename
+            java.util.Map<String, java.util.List<Result>> fileGroups = new java.util.HashMap<>();
+            for (Result r : results) {
+                fileGroups.computeIfAbsent(r.filename, k -> new java.util.ArrayList<>()).add(r);
+            }
+            
+            for (java.util.Map.Entry<String, java.util.List<Result>> entry : fileGroups.entrySet()) {
+                String fname = entry.getKey();
+                java.util.List<Result> fileResults = entry.getValue();
+                
+                double avgUpTime = fileResults.stream().mapToDouble(r -> r.uploadTime).average().orElse(0);
+                double avgDownTime = fileResults.stream().mapToDouble(r -> r.downloadTime).average().orElse(0);
+                double fileavgUpTput = fileResults.stream().mapToDouble(Result::uploadThroughput).average().orElse(0);
+                double fileavgDownTput = fileResults.stream().mapToDouble(Result::downloadThroughput).average().orElse(0);
+                
+                w.printf("%-30s | %4d | %10s | %10s | %10.2f | %10.2f%n",
+                    truncate(fname, 30), fileResults.size(),
+                    formatTime(avgUpTime), formatTime(avgDownTime),
+                    fileavgUpTput, fileavgDownTput);
+            }
         }
         return filename;
     }
@@ -336,6 +389,7 @@ public class IrodsPerformanceTest {
         double avgUpTput = results.stream().mapToDouble(Result::uploadThroughput).average().orElse(0);
         double avgDownTput = results.stream().mapToDouble(Result::downloadThroughput).average().orElse(0);
 
+        System.out.println("Buffer size: " + formatSize(BUFFER_SIZE));
         System.out.println("Compression level used: " + compressionLevel);
         System.out.println("Successful runs: " + results.size());
         System.out.printf("Average compression time: %s%n", formatTime(avgCompress));
@@ -466,7 +520,14 @@ public class IrodsPerformanceTest {
             this.compressTime = compressTime;
         }
 
-        double uploadThroughput() { return (transferSize / 1024.0 / 1024.0) / uploadTime; }
-        double downloadThroughput() { return (transferSize / 1024.0 / 1024.0) / downloadTime; }
+        double uploadThroughput() { 
+            // Use original size to show effective throughput (what user cares about)
+            return (originalSize / 1024.0 / 1024.0) / uploadTime; 
+        }
+        
+        double downloadThroughput() { 
+            // Use original size to show effective throughput
+            return (originalSize / 1024.0 / 1024.0) / downloadTime; 
+        }
     }
 }
