@@ -1,4 +1,5 @@
 # grown-up modules
+import json
 import logging
 import os
 import tempfile
@@ -67,7 +68,7 @@ def run_unit_tests(containers, test_list=None, fail_fast=True):
     finally:
         logging.error(tm.result_string())
 
-    return tm.return_code()
+    return tm
 
 
 def run_plugin_tests(containers,
@@ -98,7 +99,7 @@ def run_plugin_tests(containers,
     finally:
         logging.error(tm.result_string())
 
-    return tm.return_code()
+    return tm
 
 
 def run_specific_tests(containers, test_list=None, options=None, fail_fast=True):
@@ -120,7 +121,7 @@ def run_specific_tests(containers, test_list=None, options=None, fail_fast=True)
     finally:
         logging.error(tm.result_string())
 
-    return tm.return_code()
+    return tm
 
 
 def run_python_test_suite(container, options=None):
@@ -176,3 +177,13 @@ def get_test_list(container):
                                              'scripts',
                                              'core_tests_list.json')
                                          )
+
+
+def print_test_results_json(test_run, metadata=None):
+    """Print a JSON summary of the provided test manager to stdout."""
+    payload = test_run.result_dict()
+
+    if metadata:
+        payload['metadata'] = metadata
+
+    print(json.dumps(payload))

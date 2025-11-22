@@ -73,6 +73,10 @@ python run_core_tests.py --project-directory ./projects/ubuntu-22.04/ubuntu-22.0
 ```
 The above line will stand up 4 identical zones and divide up the full list of tests in the iRODS python test suite as evenly as possible to run amongst the executors in parallel.
 
+To capture machine-readable results, pass `--json-test-output` to any of the test runner
+scripts (core, topology, federation, plugin, or unit). The script prints a JSON summary of
+the executed tests to stdout after the run completes.
+
 To run specific tests, use the `--tests` option. If no tests are provided via the `--tests` option (as shown above), the full iRODS python test suite will be run. Note: The python test suite can take 8-10 hours to run.
 ```bash
 python run_core_tests.py --project-directory projects/ubuntu-22.04/ubuntu-22.04-postgres-14 \

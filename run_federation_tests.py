@@ -75,6 +75,7 @@ if __name__ == "__main__":
 
     rc = 0
     container = None
+    test_run = None
 
     try:
         if args.do_setup:
@@ -146,10 +147,11 @@ if __name__ == "__main__":
         execute.execute_command(container, 'iadmin lu', user='irods')
         execute.execute_command(container, 'iadmin lz', user='irods')
 
-        rc = test_utils.run_specific_tests([container],
-                                           args.tests or ['test_federation'],
-                                           [options] * args.executor_count,
-                                           args.fail_fast)
+        test_run = test_utils.run_specific_tests([container],
+                                                 args.tests or ['test_federation'],
+                                                 [options] * args.executor_count,
+                                                 args.fail_fast)
+        rc = test_run.return_code()
 
     except Exception as e:
         logging.critical(e)
@@ -183,5 +185,15 @@ if __name__ == "__main__":
 
         if args.cleanup_containers:
             ctx.compose_project.down(include_volumes=True, remove_image_type=False)
+
+        if args.json_test_output and test_run:
+            test_utils.print_test_results_json(
+                test_run,
+                {
+                    'job_name': job_name,
+                    'project_name': ctx.compose_project.name,
+                    'project_directory': project_directory,
+                    'script': 'run_federation_tests.py'
+                })
 
     exit(rc)

@@ -137,6 +137,13 @@ def add_irods_test_args(parser):
                             If indicated, the iRODS servers will be set up using \
                             unattended installation.''')
 
+    parser.add_argument('--json-test-output',
+                        action='store_true',
+                        dest='json_test_output',
+                        help=textwrap.dedent('''\
+                            Write a JSON summary of the executed tests to stdout after \
+                            completion.'''))
+
 
 def add_database_config_args(parser):
     '''Add argparse options related to setting up and configuring iRODS.

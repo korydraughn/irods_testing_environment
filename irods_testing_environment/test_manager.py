@@ -82,6 +82,28 @@ class test_manager:
 
         return r
 
+    def result_dict(self):
+        """Return dict representing the aggregated test results."""
+        def _format_entries(entries):
+            return [
+                {'name': test, 'duration_seconds': duration}
+                for test, duration in entries
+            ]
+
+        def _duration_or_none(duration):
+            return None if duration is None or duration < 0 else duration
+
+        tests_were_skipped = any(len(tr.skipped_tests()) > 0 for tr in self.test_runners)
+
+        return {
+            'return_code': self.return_code(),
+            'all_tests_passed': self.return_code() == 0,
+            'tests_were_skipped': tests_were_skipped,
+            'duration_seconds': _duration_or_none(self.duration),
+            'failed_tests': _format_entries(self.failed_tests()),
+            'test_runners': [tr.result_dict() for tr in self.test_runners]
+        }
+
 
     def run(self, fail_fast=True, options=None, **kwargs):
         """Run managed `test_runners` in parallel.

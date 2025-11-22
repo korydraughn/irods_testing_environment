@@ -110,6 +110,28 @@ class test_runner:
 
         return r
 
+    def result_dict(self):
+        """Return a dict representing the results of running the test list."""
+        def _format_entries(entries):
+            return [
+                {'name': test, 'duration_seconds': duration}
+                for test, duration in entries
+            ]
+
+        def _duration_or_none(duration):
+            return None if duration is None or duration < 0 else duration
+
+        return {
+            'container': self.name(),
+            'return_code': self.rc,
+            'duration_seconds': _duration_or_none(self.duration),
+            'tests': {
+                'passed': _format_entries(self.passed_tests()),
+                'failed': _format_entries(self.failed_tests()),
+                'skipped': [{'name': test} for test in self.skipped_tests()]
+            }
+        }
+
 
     def run(self, test_queue, fail_fast=True, **kwargs):
         """Execute tests from `test_queue` in executing container.

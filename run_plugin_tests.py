@@ -72,6 +72,7 @@ output_directory = test_utils.make_output_directory(dirname, job_name)
 logs.configure(args.verbosity, os.path.join(output_directory, 'script_output.log'))
 
 rc = 0
+test_run = None
 
 try:
     if args.do_setup:
@@ -112,12 +113,13 @@ try:
 
     options = ['--built_packages_root_directory', plugin_package_directory]
 
-    rc = test_utils.run_plugin_tests(containers,
-                                     args.plugin_name,
-                                     args.test_hook,
-                                     args.tests,
-                                     [options] * args.executor_count,
-                                     args.fail_fast)
+    test_run = test_utils.run_plugin_tests(containers,
+                                           args.plugin_name,
+                                           args.test_hook,
+                                           args.tests,
+                                           [options] * args.executor_count,
+                                           args.fail_fast)
+    rc = test_run.return_code()
 
 except Exception as e:
     logging.critical(e)
@@ -151,8 +153,18 @@ finally:
         except docker.errors.NotFound:
             logging.warning('Path in container not found for --extra-logs-path {!r}'.format(args.extra_logs_path))
 
-    if args.cleanup_containers:
-        ctx.compose_project.down(include_volumes=True, remove_image_type=False)
+        if args.cleanup_containers:
+            ctx.compose_project.down(include_volumes=True, remove_image_type=False)
+
+        if args.json_test_output and test_run:
+            test_utils.print_test_results_json(
+                test_run,
+                {
+                    'job_name': job_name,
+                    'project_name': ctx.compose_project.name,
+                    'project_directory': project_directory,
+                    'script': 'run_plugin_tests.py'
+                })
 
 
 exit(rc)
