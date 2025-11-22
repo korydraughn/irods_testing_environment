@@ -7,9 +7,6 @@ charset-normalizer==2.0.4
 cryptography==3.4.8
 distro==1.6.0
 docker==5.0.2
-docker-compose==1.29.2
-dockerpty==0.4.1
-docopt==0.6.2
 idna==3.2
 importlib-metadata==4.8.1
 jsonschema==3.2.0

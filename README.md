@@ -35,35 +35,19 @@ It is *highly recommended* to use a `virtualenv` python virtual environment. You
 ```bash
 virtualenv -p python3 ~/irods_testing_environment
 source ~/irods_testing_environment/bin/activate
-pip install docker-compose GitPython
+pip install GitPython
 pip freeze
 ```
 Compare the output to `requirements.txt`.
 
-### A note about `docker-compose`
+### Docker Compose CLI
 
-`docker-compose` is being phased out by Docker and you may experience problems installing it via `pip`.
-
-If this happens to you, try doing the following:
-
-Clone the Docker Compose Git repository:
-```bash
-git clone https://github.com/docker/compose
-```
-
-Check out the latest tag which was still using the Python implementation:
-```bash
-cd compose
-git checkout 1.29.2
-```
-
-At this point, you can make the modifications needed to fix any problems you may encounter.
-
-Once done, back out and pip install the local directory:
-```bash
-cd -
-pip install ./compose
-```
+This project now shells out to the Docker Compose CLI rather than importing the
+deprecated Python module. Make sure either `docker compose` (the Docker CLI
+plugin) or the standalone `docker-compose` binary is installed and available on
+your `PATH`. If you need to point to a custom Compose executable, set the
+environment variable `ITE_DOCKER_COMPOSE_COMMAND` to the full command (for
+example, `ITE_DOCKER_COMPOSE_COMMAND="docker-compose --ansi never"`).
 
 ## Run iRODS Tests
 
@@ -262,4 +246,3 @@ This does the following:
  1. Runs the `xunit-viewer1 container with the specified test results as a server on the default port.
  2. Provides `/results` as a volume mount in the container. `/path/to/test-results` is the location of the test results as specified by the `--output-directory`/`-o` option for the test-running scripts.
  3. Exposes port 3000 in the container as 3000 on the host. This is the default port for the `xunit-viewer` server.
-
