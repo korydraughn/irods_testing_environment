@@ -1,5 +1,4 @@
 # grown-up modules
-import compose.cli.command
 import docker
 import logging
 import os

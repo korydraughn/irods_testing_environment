@@ -1,11 +1,11 @@
 # grown-up modules
-import compose.cli.command
 import docker
 import json
 import logging
 import os
 
 # local modules
+from irods_testing_environment import compose_cli
 import context
 import execute
 import json_utils
@@ -25,8 +25,10 @@ if __name__ == "__main__":
 
     docker_client = docker.from_env()
 
-    compose_project = compose.cli.command.get_project(os.path.abspath(args.project_directory),
-                                                      project_name=args.project_name)
+    compose_project = compose_cli.get_project(
+        project_dir=os.path.abspath(args.project_directory),
+        project_name=args.project_name,
+        docker_client=docker_client)
 
     logs.configure(args.verbosity)
 

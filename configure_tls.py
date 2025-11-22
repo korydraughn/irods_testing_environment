@@ -14,10 +14,10 @@ from irods_testing_environment import logs
 from irods_testing_environment import context
 from irods_testing_environment import execute
 from irods_testing_environment import json_utils
+from irods_testing_environment import compose_cli
 
 if __name__ == "__main__":
     import argparse
-    import compose.cli.command
     import docker
 
     import cli
@@ -31,8 +31,10 @@ if __name__ == "__main__":
 
     docker_client = docker.from_env()
 
-    compose_project = compose.cli.command.get_project(os.path.abspath(args.project_directory),
-                                                      project_name=args.project_name)
+    compose_project = compose_cli.get_project(
+        project_dir=os.path.abspath(args.project_directory),
+        project_name=args.project_name,
+        docker_client=docker_client)
 
     logs.configure(args.verbosity)
 

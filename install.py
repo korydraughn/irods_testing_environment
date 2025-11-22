@@ -1,10 +1,10 @@
 # grown-up modules
-import compose.cli.command
 import docker
 import logging
 import os
 
 # local modules
+from irods_testing_environment import compose_cli
 from irods_testing_environment import archive
 from irods_testing_environment import context
 from irods_testing_environment import execute
@@ -33,11 +33,13 @@ if __name__ == "__main__":
     logs.configure(args.verbosity)
 
     project_directory = os.path.abspath(args.project_directory or os.getcwd())
+    docker_client = docker.from_env()
+    compose_project = compose_cli.get_project(
+        project_dir=project_directory,
+        project_name=args.project_name,
+        docker_client=docker_client)
 
-    ctx = context.context(docker.from_env(),
-                          compose.cli.command.get_project(
-                              project_dir=project_directory,
-                              project_name=args.project_name))
+    ctx = context.context(docker_client, compose_project)
 
     logging.debug('provided project name [{0}], docker-compose project name [{1}]'
                   .format(args.project_name, ctx.compose_project.name))

@@ -1,12 +1,12 @@
 # grown-up modules
 import argparse
-import compose.cli.command
 import docker
 import logging
 import os
 import textwrap
 
 # local modules
+from irods_testing_environment import compose_cli
 from irods_testing_environment import archive
 from irods_testing_environment import context
 from irods_testing_environment import irods_config
@@ -45,16 +45,19 @@ if args.package_directory and args.package_version:
     exit(1)
 
 project_directory = os.path.abspath(args.project_directory or os.getcwd())
+docker_client = docker.from_env(use_ssh_client=True)
 
 if not args.install_packages:
     os.environ['dockerfile'] = 'release.Dockerfile'
     if args.package_version:
         os.environ['irods_package_version'] = args.package_version
 
-ctx = context.context(docker.from_env(use_ssh_client=True),
-                      compose.cli.command.get_project(
-                          project_dir=project_directory,
-                          project_name=args.project_name))
+ctx = context.context(
+    docker_client,
+    compose_cli.get_project(
+        project_dir=project_directory,
+        project_name=args.project_name,
+        docker_client=docker_client))
 
 if args.output_directory:
     dirname = args.output_directory

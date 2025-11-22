@@ -1,11 +1,11 @@
 # grown-up modules
-import compose.cli.command
 import docker
 import logging
 import os
 
 # local modules
 import context
+from irods_testing_environment import compose_cli
 
 if __name__ == "__main__":
     import argparse
@@ -37,7 +37,10 @@ if __name__ == "__main__":
     docker_client = docker.from_env()
 
     try:
-        p = compose.cli.command.get_project(os.path.abspath(args.project_path), project_name=args.project_name)
+        p = compose_cli.get_project(
+            project_dir=os.path.abspath(args.project_path),
+            project_name=args.project_name,
+            docker_client=docker_client)
 
         # Get the container on which the command is to be executed
         containers = list()

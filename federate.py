@@ -1,11 +1,11 @@
 # grown-up modules
-import compose.cli.command
 import docker
 import json
 import logging
 import os
 
 # local modules
+from irods_testing_environment import compose_cli
 from irods_testing_environment import context
 from irods_testing_environment import database_setup
 from irods_testing_environment import execute
@@ -79,16 +79,19 @@ if __name__ == "__main__":
     zone_names = args.zone_names or ['tempZone', 'otherZone']
 
     project_directory = os.path.abspath(args.project_directory or os.getcwd())
+    docker_client = docker.from_env()
 
     if not args.install_packages:
         os.environ['dockerfile'] = 'release.Dockerfile'
         if args.package_version:
             os.environ['irods_package_version'] = args.package_version
 
-    ctx = context.context(docker.from_env(),
-                          compose.cli.command.get_project(
-                              project_dir=project_directory,
-                              project_name=args.project_name))
+    ctx = context.context(
+        docker_client,
+        compose_cli.get_project(
+            project_dir=project_directory,
+            project_name=args.project_name,
+            docker_client=docker_client))
 
     logs.configure(args.verbosity)
 
@@ -127,4 +130,3 @@ if __name__ == "__main__":
         zone_info_list = irods_setup.get_info_for_zones(ctx, zone_names, args.consumers_per_zone)
 
     federate.form_federation_clique(ctx, zone_info_list, args.federate_consumers)
-

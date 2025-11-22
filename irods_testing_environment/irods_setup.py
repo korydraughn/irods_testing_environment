@@ -1,5 +1,4 @@
 # grown-up modules
-import compose
 import docker
 import json
 import logging

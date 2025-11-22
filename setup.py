@@ -1,10 +1,10 @@
 # grown-up modules
-import compose.cli.command
 import docker
 import logging
 import os
 
 # local modules
+from irods_testing_environment import compose_cli
 from irods_testing_environment import context
 from irods_testing_environment import database_setup
 from irods_testing_environment import irods_setup
@@ -72,11 +72,13 @@ if __name__ == "__main__":
     logs.configure(args.verbosity)
 
     project_directory = os.path.abspath(args.project_directory or os.getcwd())
+    docker_client = docker.from_env()
+    compose_project = compose_cli.get_project(
+        project_dir=project_directory,
+        project_name=args.project_name,
+        docker_client=docker_client)
 
-    ctx = context.context(docker.from_env(),
-                          compose.cli.command.get_project(
-                              project_dir=project_directory,
-                              project_name=args.project_name))
+    ctx = context.context(docker_client, compose_project)
 
     logging.debug('provided project name [{}], docker-compose project name [{}]'
                   .format(args.project_name, ctx.compose_project.name))
@@ -107,4 +109,3 @@ if __name__ == "__main__":
     except Exception as e:
         logging.critical(e)
         raise
-

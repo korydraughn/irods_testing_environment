@@ -1,5 +1,4 @@
 # grown-up modules
-import compose.cli.command
 import docker
 import json
 import logging
@@ -611,4 +610,3 @@ def configure_pam_for_auth_plugin(docker_client, compose_project):
 
     if rc != 0:
         raise RuntimeError('failed to configure pam on some service')
-
