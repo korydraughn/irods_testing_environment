@@ -20,7 +20,9 @@ def _detect_compose_command() -> List[str]:
     """Return the preferred Compose CLI command."""
     env_override = os.environ.get('ITE_DOCKER_COMPOSE_COMMAND')
     if env_override:
-        return _split_command(env_override)
+        cmd = _split_command(env_override)
+        logging.info('Using Compose command from ITE_DOCKER_COMPOSE_COMMAND: %s', ' '.join(cmd))
+        return cmd
 
     detection_order = [
         ['docker', 'compose'],
@@ -33,14 +35,17 @@ def _detect_compose_command() -> List[str]:
             continue
 
         try:
+            logging.debug('Attempting Compose command detection with %s', ' '.join(candidate))
             subprocess.run(
                 candidate + ['version'],
                 check=True,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
             )
+            logging.info('Detected Compose command: %s', ' '.join(candidate))
             return candidate
         except (subprocess.CalledProcessError, FileNotFoundError):
+            logging.debug('Compose command %s is unavailable.', ' '.join(candidate))
             continue
 
     raise ComposeError(
@@ -76,6 +81,12 @@ class ComposeProject:
             self._compose_command = list(compose_command)
         else:
             self._compose_command = _detect_compose_command()
+        logging.info(
+            'Initialized Compose project [%s] in [%s] using command [%s]',
+            self.name,
+            self.project_directory,
+            ' '.join(self._compose_command),
+        )
 
     def _command(self, extra_args: Iterable[str]) -> List[str]:
         base_args = [
@@ -88,7 +99,8 @@ class ComposeProject:
 
     def _run(self, extra_args: Iterable[str]) -> None:
         command = self._command(extra_args)
-        logging.debug('running compose command: %s', ' '.join(shlex.quote(c) for c in command))
+        readable_command = ' '.join(shlex.quote(c) for c in command)
+        logging.info('Executing Compose command: %s', readable_command)
 
         result = subprocess.run(
             command,
@@ -108,22 +120,32 @@ class ComposeProject:
 
     def build(self, service_names: Optional[Iterable[str]] = None) -> None:
         args: List[str] = ['build']
+        target = ','.join(service_names) if service_names else 'all services'
+        logging.info('Building Compose project [%s] (%s)', self.name, target)
         if service_names:
             args.extend(service_names)
         self._run(args)
 
     def up(self, scale_override: Optional[Dict[str, int]] = None) -> List:
         args: List[str] = ['up', '--detach']
+        logging.info('Starting Compose project [%s]', self.name)
         if scale_override:
             for service, scale in scale_override.items():
                 if scale is None:
                     continue
+                logging.info('Scaling service [%s] to [%s]', service, scale)
                 args.extend(['--scale', f'{service}={scale}'])
         self._run(args)
         return self.containers()
 
     def down(self, include_volumes: bool = False, remove_image_type=False) -> None:
         args: List[str] = ['down']
+        logging.info(
+            'Stopping Compose project [%s] (volumes=%s, remove_images=%s)',
+            self.name,
+            include_volumes,
+            remove_image_type,
+        )
         if include_volumes:
             args.append('--volumes')
         if isinstance(remove_image_type, str) and remove_image_type in ('local', 'all'):
@@ -131,6 +153,12 @@ class ComposeProject:
         self._run(args)
 
     def containers(self, service_names: Optional[Iterable[str]] = None, stopped: bool = False) -> List:
+        logging.info(
+            'Listing containers for Compose project [%s] (services=%s, include_stopped=%s)',
+            self.name,
+            ','.join(service_names) if service_names else 'all',
+            stopped,
+        )
         filters = {'label': [f'com.docker.compose.project={self.name}']}
         containers = self.docker_client.containers.list(all=stopped, filters=filters)
         if service_names:
