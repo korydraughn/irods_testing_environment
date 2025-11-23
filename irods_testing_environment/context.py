@@ -149,6 +149,11 @@ def sanitize(repo_or_tag):
                        .replace('/', ''))
 
 
+def sanitize_identifier(repo_or_tag):
+    """Sanitize strings for safe use in dynamically-generated identifiers."""
+    return sanitize(repo_or_tag).replace('-', '_')
+
+
 def _split_container_name(container_name):
     """Return project, service, instance tuple parsed from container name.
 

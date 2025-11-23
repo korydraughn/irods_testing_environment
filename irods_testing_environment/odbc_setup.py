@@ -1087,10 +1087,9 @@ def configure_odbc_driver(platform_image, database_image, csp_container, odbc_dr
     # generate the function name of the form:
     #   configure_odbc_driver_platform-repo_platform-tag_database-repo_database-tag
     func_name = '_'.join([inspect.currentframe().f_code.co_name,
-                          context.sanitize(context.image_repo(platform_image)),
-                          context.sanitize(context.image_tag(platform_image)),
-                          context.sanitize(context.image_repo(database_image)),
-                          context.sanitize(context.image_tag(database_image))])
+                          context.sanitize_identifier(context.image_repo(platform_image)),
+                          context.sanitize_identifier(context.image_tag(platform_image)),
+                          context.sanitize_identifier(context.image_repo(database_image)),
+                          context.sanitize_identifier(context.image_tag(database_image))])
 
     eval(func_name)(csp_container, odbc_driver)
-
