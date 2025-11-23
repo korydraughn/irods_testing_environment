@@ -1074,6 +1074,29 @@ def configure_odbc_driver_rockylinux_10_mariadb_118(csp_container, odbc_driver):
     """
     configure_odbc_driver_el_10_mariadb(csp_container, odbc_driver)
 
+def _platform_components(platform_image):
+    repo = context.image_repo(platform_image).replace('/', '-')
+    parts = [context.sanitize_identifier(p) for p in repo.split('-') if p]
+    os_name = parts[0] if parts else context.sanitize_identifier(repo)
+    os_version = None
+    for token in parts[1:]:
+        if token and any(ch.isdigit() for ch in token):
+            os_version = token
+            break
+    if not os_version:
+        os_version = context.sanitize_identifier(context.image_tag(platform_image))
+    return os_name, os_version
+
+
+def _resolve_odbc_function(func_name_candidates):
+    current_globals = globals()
+    for name in func_name_candidates:
+        func = current_globals.get(name)
+        if callable(func):
+            return func
+    return None
+
+
 def configure_odbc_driver(platform_image, database_image, csp_container, odbc_driver=None):
     """Make an ODBC setup strategy for the given database type.
 
@@ -1083,13 +1106,25 @@ def configure_odbc_driver(platform_image, database_image, csp_container, odbc_dr
     csp_container -- docker container on which the iRODS catalog service provider is running
     odbc_driver -- if specified, the ODBC driver will be sought here
     """
-    import inspect
-    # generate the function name of the form:
-    #   configure_odbc_driver_platform-repo_platform-tag_database-repo_database-tag
-    func_name = '_'.join([inspect.currentframe().f_code.co_name,
-                          context.sanitize_identifier(context.image_repo(platform_image)),
-                          context.sanitize_identifier(context.image_tag(platform_image)),
-                          context.sanitize_identifier(context.image_repo(database_image)),
-                          context.sanitize_identifier(context.image_tag(database_image))])
+    os_name, os_version = _platform_components(platform_image)
+    db_repo = context.sanitize_identifier(context.image_repo(database_image))
+    db_tag = context.sanitize_identifier(context.image_tag(database_image))
 
-    eval(func_name)(csp_container, odbc_driver)
+    candidates = [
+        f'configure_odbc_driver_{os_name}_{os_version}_{db_repo}_{db_tag}',
+        f'configure_odbc_driver_{os_name}_{os_version}_{db_repo}',
+        f'configure_odbc_driver_{db_repo}_{db_tag}',
+        f'configure_odbc_driver_{db_repo}',
+    ]
+
+    func = _resolve_odbc_function(candidates)
+
+    if func:
+        func(csp_container, odbc_driver)
+        return
+
+    if db_repo == 'postgres':
+        configure_postgres_odbc_driver(csp_container, odbc_driver)
+        return
+
+    raise NameError(f'No ODBC configuration function found for {platform_image} / {database_image}')
