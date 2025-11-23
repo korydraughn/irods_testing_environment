@@ -56,6 +56,10 @@ def collect_logs(docker_client, containers, output_directory):
     """
     from . import irods_config
 
+    if not containers:
+        logging.warning('No containers available for log collection.')
+        return
+
     archive.collect_files_from_containers(docker_client,
                                           containers,
                                           [os.path.join(context.irods_home(), 'log')],

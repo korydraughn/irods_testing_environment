@@ -102,19 +102,25 @@ class ComposeProject:
         readable_command = ' '.join(shlex.quote(c) for c in command)
         logging.info('Executing Compose command: %s', readable_command)
 
-        result = subprocess.run(
-            command,
-            cwd=self.project_directory,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-        )
+        capture_output = logging.getLogger().isEnabledFor(logging.DEBUG)
+        run_kwargs = {
+            'cwd': self.project_directory,
+            'text': True,
+        }
 
-        if result.stdout:
+        if capture_output:
+            run_kwargs.update({
+                'stdout': subprocess.PIPE,
+                'stderr': subprocess.PIPE,
+            })
+
+        result = subprocess.run(command, **run_kwargs)
+
+        if capture_output and result.stdout:
             logging.debug(result.stdout.strip())
 
         if result.returncode != 0:
-            if result.stderr:
+            if capture_output and result.stderr:
                 logging.error(result.stderr.strip())
             raise ComposeError(f'Compose command failed: {" ".join(command)}')
 
