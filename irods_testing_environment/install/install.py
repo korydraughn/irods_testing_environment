@@ -262,9 +262,29 @@ def make_installer(platform_name):
     from . import rockylinux_installer
     from . import ubuntu_installer
 
-    name = '_'.join([platform_name, 'installer'])
+    platform = normalize_platform_name(platform_name)
+    name = '_'.join([platform, 'installer'])
 
     return eval('.'.join([name, name]))()
+
+
+def normalize_platform_name(platform_name):
+    """Map platform identifiers to installer module prefixes."""
+    base = platform_name.split('/')[-1].lower()
+    base = base.replace('.', '_')
+
+    platform_aliases = [
+        ('ubuntu', 'ubuntu'),
+        ('debian', 'debian'),
+        ('rockylinux', 'rockylinux'),
+        ('almalinux', 'almalinux'),
+    ]
+
+    for prefix, normalized in platform_aliases:
+        if base.startswith(prefix):
+            return normalized
+
+    raise RuntimeError(f'Unsupported platform for installer [{platform_name}]')
 
 
 def install_pip_package_from_repo(container,

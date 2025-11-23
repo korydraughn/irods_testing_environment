@@ -60,14 +60,22 @@ def collect_logs(docker_client, containers, output_directory):
         logging.warning('No containers available for log collection.')
         return
 
-    archive.collect_files_from_containers(docker_client,
-                                          containers,
-                                          [os.path.join(context.irods_home(), 'log')],
-                                          output_directory)
-
-    major, minor, patch = irods_config.get_irods_version(docker_client.containers.get(containers[0].name))
-    if minor > 2:
+    try:
         archive.collect_files_from_containers(docker_client,
                                               containers,
-                                              [log_directory_for_version((major,minor,patch))],
+                                              [os.path.join(context.irods_home(), 'log')],
                                               output_directory)
+    except Exception as e:
+        logging.error(e)
+        logging.error('failed to collect expected log directory from containers')
+
+    try:
+        major, minor, patch = irods_config.get_irods_version(docker_client.containers.get(containers[0].name))
+        if minor > 2:
+            archive.collect_files_from_containers(docker_client,
+                                                  containers,
+                                                  [log_directory_for_version((major,minor,patch))],
+                                                  output_directory)
+    except Exception as e:
+        logging.error(e)
+        logging.error('failed to collect logs from version-specific directory')
