@@ -39,7 +39,7 @@ public class IrodsPerformanceTest1 {
 
     // Compression settings
     private static final boolean ENABLE_ADAPTIVE = true;  // Set to false for manual compression level
-    private static final boolean ENABLE_COMPRESSION = false;
+    private static final boolean ENABLE_COMPRESSION = true;
     private static final int MANUAL_COMPRESSION_LEVEL = 3; // 1=fastest, 22=highest
 
     private static final String RESULTS_DIR = "./performance_results";
