@@ -1,0 +1,202 @@
+# Check Java version
+java -version
+# Should show: java version "11" or higher
+
+# Check Maven version
+mvn -version
+# Should show: Apache Maven 3.6.x or higher
+
+# Check if iRODS environment is configured
+ls ~/.irods/irods_environment.json
+# Should exist and contain your iRODS connection info
+
+Step 1: Install Java (if not installed)
+Ubuntu/Debian:
+sudo apt update
+sudo apt install openjdk-11-jdk
+
+macOS:
+java -version
+javac -version
+
+Step 2: Install Maven
+Ubuntu/Debian:
+sudo apt update
+sudo apt install maven
+
+macOS:
+brew install maven
+
+Verify installation:
+mvn -version
+
+Step 3: Clone and Build irods4j
+cd ~/irods_protocol_benchmarking1
+
+# Clone irods4j repository
+git clone https://github.com/irods-contrib/irods4j.git
+cd irods4j
+
+# Build irods4j
+mvn clean install -DskipTests
+
+# Verify the JAR was created
+ls -lh target/irods4j-0.5.0.jar
+# Should show: irods4j-0.5.0.jar (around 200KB)
+
+Step 4: Download Zstandard Library
+cd ~/irods_protocol_benchmarking1/lib
+
+# Download zstd-jni
+wget https://repo1.maven.org/maven2/com/github/luben/zstd-jni/1.5.6-3/zstd-jni-1.5.6-3.jar
+
+# Verify download
+ls -lh zstd-jni-1.5.6-3.jar
+# Should show: zstd-jni-1.5.6-3.jar (around 5MB)
+
+Step 5: Install Maven Dependencies
+Maven will download these automatically when building irods4j, but verify they exist:
+bash# Check if Maven dependencies are downloaded
+ls -lh ~/.m2/repository/com/fasterxml/jackson/core/jackson-core/2.18.1/
+ls -lh ~/.m2/repository/com/fasterxml/jackson/core/jackson-databind/2.18.1/
+ls -lh ~/.m2/repository/org/apache/logging/log4j/log4j-api/2.24.3/
+
+# If missing, download them manually
+cd ~/irods_protocol_benchmarking1
+mvn dependency:get -Dartifact=com.fasterxml.jackson.core:jackson-core:2.18.1
+mvn dependency:get -Dartifact=com.fasterxml.jackson.core:jackson-databind:2.18.1
+mvn dependency:get -Dartifact=com.fasterxml.jackson.core:jackson-annotations:2.18.1
+mvn dependency:get -Dartifact=com.fasterxml.jackson.dataformat:jackson-dataformat-xml:2.18.1
+mvn dependency:get -Dartifact=com.fasterxml.woodstox:woodstox-core:6.7.0
+mvn dependency:get -Dartifact=org.codehaus.woodstox:stax2-api:4.2.2
+mvn dependency:get -Dartifact=org.apache.logging.log4j:log4j-api:2.24.3
+mvn dependency:get -Dartifact=org.apache.logging.log4j:log4j-core:2.24.3
+
+Step 6: Copy Your Java Code
+cd ~/irods_protocol_benchmarking
+
+# Create the Java file (paste your code)
+nano IrodsPerformanceTest.java or
+vim IrodsPerformanceTest.java
+# Or copy from your existing file
+
+Running the Benchmark
+Step 1: Compile the Code
+cd ~/irods_protocol_benchmarking
+
+# Compile with full classpath
+javac -cp "$HOME/irods_protocol_benchmarking1/irods4j/target/irods4j-0.5.0.jar:\
+$HOME/.m2/repository/com/fasterxml/jackson/core/jackson-core/2.18.1/jackson-core-2.18.1.jar:\
+$HOME/.m2/repository/com/fasterxml/jackson/core/jackson-databind/2.18.1/jackson-databind-2.18.1.jar:\
+$HOME/.m2/repository/com/fasterxml/jackson/core/jackson-annotations/2.18.1/jackson-annotations-2.18.1.jar:\
+$HOME/.m2/repository/com/fasterxml/jackson/dataformat/jackson-dataformat-xml/2.18.1/jackson-dataformat-xml-2.18.1.jar:\
+$HOME/.m2/repository/com/fasterxml/woodstox/woodstox-core/6.7.0/woodstox-core-6.7.0.jar:\
+$HOME/.m2/repository/org/codehaus/woodstox/stax2-api/4.2.2/stax2-api-4.2.2.jar:\
+$HOME/.m2/repository/org/apache/logging/log4j/log4j-api/2.24.3/log4j-api-2.24.3.jar:\
+$HOME/.m2/repository/org/apache/logging/log4j/log4j-core/2.24.3/log4j-core-2.24.3.jar:\
+$HOME/irods_protocol_benchmarking1/lib/zstd-jni-1.5.6-3.jar" \
+IrodsPerformanceTest.java
+
+# Verify compilation succeeded
+ls -lh IrodsPerformanceTest*.class
+# Should show multiple .class files
+
+Step 2: Run the Benchmark
+cd ~/irods_protocol_benchmarking1
+
+# Run with full classpath
+java -cp "$HOME/irods_protocol_benchmarking1/irods4j/target/irods4j-0.5.0.jar:\
+$HOME/.m2/repository/com/fasterxml/jackson/core/jackson-core/2.18.1/jackson-core-2.18.1.jar:\
+$HOME/.m2/repository/com/fasterxml/jackson/core/jackson-databind/2.18.1/jackson-databind-2.18.1.jar:\
+$HOME/.m2/repository/com/fasterxml/jackson/core/jackson-annotations/2.18.1/jackson-annotations-2.18.1.jar:\
+$HOME/.m2/repository/com/fasterxml/jackson/dataformat/jackson-dataformat-xml/2.18.1/jackson-dataformat-xml-2.18.1.jar:\
+$HOME/.m2/repository/com/fasterxml/woodstox/woodstox-core/6.7.0/woodstox-core-6.7.0.jar:\
+$HOME/.m2/repository/org/codehaus/woodstox/stax2-api/4.2.2/stax2-api-4.2.2.jar:\
+$HOME/.m2/repository/org/apache/logging/log4j/log4j-api/2.24.3/log4j-api-2.24.3.jar:\
+$HOME/.m2/repository/org/apache/logging/log4j/log4j-core/2.24.3/log4j-core-2.24.3.jar:\
+$HOME/irods_protocol_benchmarking1/lib/zstd-jni-1.5.6-3.jar:." \
+IrodsPerformanceTest
+
+Step 3: Create a Helper Script (Recommended)
+To avoid typing the long classpath, create a run script:
+cd ~/irods_protocol_benchmarking1
+
+# Create run script
+cat > run_benchmark.sh << 'EOF'
+#!/bin/bash
+
+# Set classpath
+CLASSPATH="$HOME/irods_protocol_benchmarking1/irods4j/target/irods4j-0.5.0.jar"
+CLASSPATH="$CLASSPATH:$HOME/.m2/repository/com/fasterxml/jackson/core/jackson-core/2.18.1/jackson-core-2.18.1.jar"
+CLASSPATH="$CLASSPATH:$HOME/.m2/repository/com/fasterxml/jackson/core/jackson-databind/2.18.1/jackson-databind-2.18.1.jar"
+CLASSPATH="$CLASSPATH:$HOME/.m2/repository/com/fasterxml/jackson/core/jackson-annotations/2.18.1/jackson-annotations-2.18.1.jar"
+CLASSPATH="$CLASSPATH:$HOME/.m2/repository/com/fasterxml/jackson/dataformat/jackson-dataformat-xml/2.18.1/jackson-dataformat-xml-2.18.1.jar"
+CLASSPATH="$CLASSPATH:$HOME/.m2/repository/com/fasterxml/woodstox/woodstox-core/6.7.0/woodstox-core-6.7.0.jar"
+CLASSPATH="$CLASSPATH:$HOME/.m2/repository/org/codehaus/woodstox/stax2-api/4.2.2/stax2-api-4.2.2.jar"
+CLASSPATH="$CLASSPATH:$HOME/.m2/repository/org/apache/logging/log4j/log4j-api/2.24.3/log4j-api-2.24.3.jar"
+CLASSPATH="$CLASSPATH:$HOME/.m2/repository/org/apache/logging/log4j/log4j-core/2.24.3/log4j-core-2.24.3.jar"
+CLASSPATH="$CLASSPATH:$HOME/irods_protocol_benchmarking1/lib/zstd-jni-1.5.6-3.jar"
+CLASSPATH="$CLASSPATH:."
+
+# Run benchmark
+java -cp "$CLASSPATH" IrodsPerformanceTest
+EOF
+
+# Make executable
+chmod +x run_benchmark.sh
+
+# Run the benchmark
+./run_benchmark.sh
+
+Understanding Results: 
+Output Files
+Results are saved to:
+~/irods_protocol_benchmarking1/performance_results/
+└── irods4j_adaptive_compressed_YYYY-MM-DD_HH-MM-SS.txt
+Result File Format
+iRODS Adaptive Compression Benchmark Results
+================================================================================
+Date: 2025-11-21 12:00:00 UTC
+User: your_username
+iRODS User: rods@tempZone
+Method: Java iRODS Client (irods4j) with Adaptive Compression
+Compression Level: 15
+
+Network Speed Test Results:
+--------------------------------------------------------------------------------
+Upload speed:   0.17 MB/s
+Download speed: 0.80 MB/s
+Average speed:  0.48 MB/s
+Average latency: 342 ms
+Strategy selected: very_slow
+Rationale: Very slow network (<1 MB/s): maximum compression
+
+Aggregate Statistics:
+--------------------------------------------------------------------------------
+Total upload time:        1564.230s
+Total download time:      304.095s
+Average upload throughput:   1.62 MB/s
+Average download throughput: 6.54 MB/s
+
+Per-File Statistics:
+--------------------------------------------------------------------------------
+File: customers-1000000.csv
+  Original size: 166.09 MB
+  Avg compressed size: 63.60 MB
+  Avg compression ratio: 61.7%
+  Runs: 3
+  Avg upload time: 394.496s
+  Avg download time: 74.814s
+Performance Metrics
+
+Upload/Download Time: Total transfer time in seconds
+Throughput: MB/s (calculated from original file size)
+Compression Ratio: Percentage reduction from original size
+Compression Level: 1 (fast) to 22 (best compression)
+
+Expected Performance
+On a typical residential internet connection:
+
+Upload: 0.15-0.5 MB/s (slow, ISP limited)
+Download: 2-10 MB/s (faster, asymmetric connection)
+Compression ratio: 60-95% depending on file type
