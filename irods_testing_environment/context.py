@@ -237,8 +237,11 @@ def container_hostname(container):
     Arguments:
     container -- docker.container from which the hostname is to be extracted
     """
-    # Prefer the container's registered name to ensure Compose project prefix is present.
-    return container.name
+    try:
+        return container.client.api.inspect_container(container.name)['Config']['Hostname']
+    except Exception:
+        # Fallback to the container's registered name if inspection fails
+        return container.name
 
 
 def container_ip(container, network_name=None):
