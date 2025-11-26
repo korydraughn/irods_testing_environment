@@ -33,10 +33,10 @@ from resource_monitor import ResourceMonitor, format_stats, save_stats_to_file
 
 
 # ==================== CONFIGURATION ====================
-TEST_RUNS = 3
+TEST_RUNS = 5
 TEST_FILES_DIR = "/home/demetrius/Desktop/testFiles"
 ENABLE_ADAPTIVE_COMPRESSION = True  # Auto-adjust compression based on network speed
-MANUAL_COMPRESSION_LEVEL = 3  # Used only if adaptive is disabled
+MANUAL_COMPRESSION_LEVEL = 0  # Used only if adaptive is disabled
 ENABLE_CLEANUP = True
 ENABLE_FILE_VERIFICATION = True
 ENABLE_METADATA = True
@@ -62,7 +62,6 @@ COMPRESSION_STRATEGY = {
 METADATA_COMPRESSION_ALGORITHM = "compression_algorithm"
 METADATA_ORIGINAL_SIZE = "original_size_bytes"
 METADATA_COMPRESSION_RATIO = "compression_ratio_percent"
-METADATA_ORIGINAL_FILENAME = "original_filename"
 METADATA_COMPRESSION_LEVEL = "compression_level"
 
 class Colors:
@@ -356,45 +355,41 @@ def decompress_file_zstd(compressed_file, output_file):
         with open(output_file, 'wb') as f_out:
             dctx.copy_stream(f_in, f_out)
 
-def add_compression_metadata(session, irods_path, compression_algorithm, original_size, 
-                            compression_ratio, original_filename, compression_level=None):
+def add_compression_metadata(session, irods_path, compression_algorithm, original_size,
+                            compression_ratio, compression_level=None):
     """Add compression metadata to iRODS object"""
     try:
         obj = session.data_objects.get(irods_path)
         obj.metadata.add(METADATA_COMPRESSION_ALGORITHM, compression_algorithm)
         obj.metadata.add(METADATA_ORIGINAL_SIZE, str(original_size))
         obj.metadata.add(METADATA_COMPRESSION_RATIO, f"{compression_ratio:.2f}")
-        obj.metadata.add(METADATA_ORIGINAL_FILENAME, original_filename)
         if compression_level is not None:
             obj.metadata.add(METADATA_COMPRESSION_LEVEL, str(compression_level))
         return True, None
     except Exception as e:
         return False, str(e)
 
-def verify_metadata_written(session, irods_path, expected_algorithm, expected_size, expected_filename):
+def verify_metadata_written(session, irods_path, expected_algorithm, expected_size):
     """Verify that metadata was actually written"""
     try:
         obj = session.data_objects.get(irods_path)
         metadata = {}
-        
+
         for item in obj.metadata.items():
             if item.name == METADATA_COMPRESSION_ALGORITHM:
                 metadata['compression_algorithm'] = item.value
             elif item.name == METADATA_ORIGINAL_SIZE:
                 metadata['original_size_bytes'] = int(item.value)
-            elif item.name == METADATA_ORIGINAL_FILENAME:
-                metadata['original_filename'] = item.value
-        
-        required_fields = ['compression_algorithm', 'original_size_bytes', 'original_filename']
+
+        required_fields = ['compression_algorithm', 'original_size_bytes']
         missing = [f for f in required_fields if f not in metadata]
         if missing:
             return False, metadata, f"Missing fields: {missing}"
-        
+
         if (metadata['compression_algorithm'] != expected_algorithm or
-            metadata['original_size_bytes'] != expected_size or
-            metadata['original_filename'] != expected_filename):
+            metadata['original_size_bytes'] != expected_size):
             return False, metadata, "Value mismatch"
-        
+
         return True, metadata, None
     except Exception as e:
         return False, {}, str(e)
@@ -404,7 +399,7 @@ def read_compression_metadata(session, irods_path):
     try:
         obj = session.data_objects.get(irods_path)
         metadata = {}
-        
+
         for item in obj.metadata.items():
             if item.name == METADATA_COMPRESSION_ALGORITHM:
                 metadata['compression_algorithm'] = item.value
@@ -412,14 +407,12 @@ def read_compression_metadata(session, irods_path):
                 metadata['original_size_bytes'] = int(item.value)
             elif item.name == METADATA_COMPRESSION_RATIO:
                 metadata['compression_ratio_percent'] = float(item.value)
-            elif item.name == METADATA_ORIGINAL_FILENAME:
-                metadata['original_filename'] = item.value
             elif item.name == METADATA_COMPRESSION_LEVEL:
                 metadata['compression_level'] = int(item.value)
-        
+
         if not metadata:
             return False, {}, "No metadata found"
-        
+
         return True, metadata, None
     except Exception as e:
         return False, {}, str(e)
@@ -511,34 +504,43 @@ def verify_connection(session):
         print_color(f"  ✗ Connection failed: {e}", Colors.RED)
         return False
 
-def run_performance_test(session, test_files, test_runs, compression_level, 
+def run_performance_test(session, test_files, test_runs, base_compression_level,
                         enable_verification, enable_metadata):
-    """Run performance test with specified compression level"""
+    """Run performance test with per-file compression level selection"""
     results = []
     zone = session.zone
     username = session.username
-    
+
     print_color(f"\nRunning {test_runs} test iterations...", Colors.YELLOW)
-    print_color(f"  Compression level: {compression_level}", Colors.CYAN)
+    print_color(f"  Base compression level: {base_compression_level}", Colors.CYAN)
+    print_color(f"  Compression level selected per file", Colors.CYAN)
     print_color(f"  Verification: {'ENABLED' if enable_verification else 'DISABLED'}", Colors.CYAN)
     print_color(f"  Metadata: {'ENABLED' if enable_metadata else 'DISABLED'}", Colors.CYAN)
-    
+
     failed_runs = 0
-    
+
     for run_num in range(1, test_runs + 1):
         for test_file in test_files:
             filename = os.path.basename(test_file)
-            
+
             if not verify_file_exists(test_file):
                 failed_runs += 1
                 continue
-            
+
             original_size = os.path.getsize(test_file)
-            
+
             if enable_verification:
                 original_checksum = calculate_file_checksum(test_file)
-            
-            # Compress with specified level
+
+            # Select compression level for this specific file
+            if ENABLE_ADAPTIVE_COMPRESSION:
+                # Get current network speed estimate for this file
+                file_size_mb = original_size / (1024 * 1024)
+                compression_level = base_compression_level  # Use the pre-calculated level per file
+            else:
+                compression_level = base_compression_level
+
+            # Compress with selected level
             print(f"  Run {run_num}/{test_runs} [{filename}]: Compress(L{compression_level})... ", end='', flush=True)
             compress_start = time.time()
             upload_file = compress_file_zstd(test_file, compression_level)
@@ -552,8 +554,9 @@ def run_performance_test(session, test_files, test_runs, compression_level,
             transfer_size = os.path.getsize(upload_file)
             compression_ratio = (1 - transfer_size / original_size) * 100 if original_size > 0 else 0
             print(f"✓ ({format_size(transfer_size)}, {compression_ratio:.1f}%, {compress_time:.3f}s) ", end='', flush=True)
-            
-            irods_path = f"/{zone}/home/{username}/benchmark_{filename}.zst_{int(time.time()*1000000)}"
+
+            # Use original filename in iRODS
+            irods_path = f"/{zone}/home/{username}/{filename}"
             
             try:
                 # Upload
@@ -574,8 +577,8 @@ def run_performance_test(session, test_files, test_runs, compression_level,
                 # Metadata
                 if enable_metadata:
                     print("Meta... ", end='', flush=True)
-                    add_compression_metadata(session, irods_path, "zstd", original_size, 
-                                           compression_ratio, filename, compression_level)
+                    add_compression_metadata(session, irods_path, "zstd", original_size,
+                                           compression_ratio, compression_level)
                     print(f"✓ ", end='', flush=True)
                 
                 # Download
