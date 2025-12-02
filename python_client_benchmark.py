@@ -16,6 +16,8 @@ import sys
 import time
 import hashlib
 import tempfile
+import subprocess
+import shutil
 from datetime import datetime
 from pathlib import Path
 from irods.session import iRODSSession
@@ -36,11 +38,19 @@ from resource_monitor import ResourceMonitor, format_stats, save_stats_to_file
 TEST_RUNS = 5
 TEST_FILES_DIR = "/home/demetrius/Desktop/testFiles"
 ENABLE_ADAPTIVE_COMPRESSION = True  # Auto-adjust compression based on network speed
-MANUAL_COMPRESSION_LEVEL = 0  # Used only if adaptive is disabled
 ENABLE_CLEANUP = True
 ENABLE_FILE_VERIFICATION = True
 ENABLE_METADATA = True
 RESULTS_DIR = "./performance_results"
+
+# Bandwidth limiting configuration (using wondershaper)
+# Set to False for no limit (default speed), or specify a speed limit:
+# Options: False, "100mbps", "50mbps", "10mbps", "1mbps"
+# Note: Requires wondershaper (sudo apt install wondershaper)
+# Format: {"download_kbps": 1000, "upload_kbps": 500, "interface": "eth0"}
+# Or use string shortcuts: "1mbps", "10mbps", "100mbps"
+BANDWIDTH_LIMIT = False  # No bandwidth limiting by default
+NETWORK_INTERFACE = "eth0"  # Change to your network interface (use 'ip link show')
 
 # Network speed test configuration
 NETWORK_TEST_SIZE_MB = 5  # Size of test file for speed measurement
@@ -180,24 +190,24 @@ def test_network_speed(session, test_size_mb=NETWORK_TEST_SIZE_MB, samples=NETWO
 def select_compression_level(network_speed_mbps):
     """
     Select optimal compression level based on network speed
-    
+
     Logic:
     - Fast network: Lower compression (less CPU, network isn't bottleneck)
     - Slow network: Higher compression (more CPU, but saves transfer time)
     """
     selected_strategy = None
     selected_level = 3  # Default
-    
+
     # Find matching strategy
-    for name, config in sorted(COMPRESSION_STRATEGY.items(), 
-                               key=lambda x: x[1]['min_mbps'], 
+    for name, config in sorted(COMPRESSION_STRATEGY.items(),
+                               key=lambda x: x[1]['min_mbps'],
                                reverse=True):
         if network_speed_mbps >= config['min_mbps']:
             selected_strategy = name
             selected_level = config['level']
             description = config['description']
             break
-    
+
     print()
     print_color(f"{'='*60}", Colors.CYAN)
     print_color("ADAPTIVE COMPRESSION SELECTION", Colors.CYAN)
@@ -207,7 +217,7 @@ def select_compression_level(network_speed_mbps):
     print(f"Selected compression level: {selected_level}")
     print(f"Rationale: {description}")
     print()
-    
+
     # Show compression speed estimates
     print("Compression level characteristics (zstd):")
     print("  Level 1:  ~500 MB/s compression, ~2000 MB/s decompression")
@@ -216,7 +226,7 @@ def select_compression_level(network_speed_mbps):
     print("  Level 9:   ~40 MB/s compression, ~1200 MB/s decompression")
     print("  Level 15:  ~10 MB/s compression, ~1000 MB/s decompression")
     print()
-    
+
     if selected_level == 1:
         print_color("→ Network is fast! Using minimal compression to save CPU.", Colors.GREEN)
     elif selected_level <= 3:
@@ -227,7 +237,57 @@ def select_compression_level(network_speed_mbps):
         print_color("→ Network is slow. Using higher compression to reduce transfer time.", Colors.YELLOW)
     else:
         print_color("→ Network is very slow! Using maximum compression.", Colors.RED)
-    
+
+    return selected_level
+
+def select_compression_level_for_file(file_size_bytes, network_speed_mbps, base_level):
+    """
+    Select optimal compression level for a specific file based on size and network speed
+
+    Logic:
+    - Small files (< 1 MB): Use lower compression (overhead not worth it)
+    - Medium files (1-100 MB): Use base level from network speed
+    - Large files (> 100 MB): Potentially increase compression (more savings)
+
+    Also considers compression speed vs network speed tradeoff:
+    - If compression would be slower than network transfer, reduce level
+    - If file is large and network is slow, increase level
+    """
+    file_size_mb = file_size_bytes / (1024 * 1024)
+
+    # Compression speeds (MB/s) for different levels
+    compression_speeds = {1: 500, 3: 200, 6: 100, 9: 40, 15: 10}
+
+    # Start with base level
+    selected_level = base_level
+
+    # Adjust based on file size
+    if file_size_mb < 1:
+        # Small files: use minimal compression (overhead dominates)
+        selected_level = min(selected_level, 1)
+    elif file_size_mb < 10:
+        # Medium-small files: slightly reduce compression
+        selected_level = max(1, selected_level - 2)
+    elif file_size_mb > 100:
+        # Large files: can benefit from higher compression if network is slow
+        if network_speed_mbps < 10:
+            selected_level = min(15, selected_level + 2)
+        elif network_speed_mbps < 50:
+            selected_level = min(9, selected_level + 1)
+
+    # Ensure compression won't bottleneck the transfer
+    # If compression speed is much slower than network, reduce level
+    estimated_comp_speed = compression_speeds.get(selected_level, 100)
+    if estimated_comp_speed < network_speed_mbps * 0.5:
+        # Compression is too slow, drop a few levels
+        if selected_level > 6:
+            selected_level = 6
+        elif selected_level > 3:
+            selected_level = 3
+
+    # Clamp to valid range
+    selected_level = max(1, min(22, selected_level))
+
     return selected_level
 
 def calculate_compression_benefit(network_speed_mbps, file_size_mb, compression_ratio):
@@ -329,18 +389,22 @@ def get_test_files(test_files_dir):
     return files
 
 def compress_file_zstd(input_file, compression_level=3):
-    """Compress file using Zstandard with specified level"""
+    """Compress file using Zstandard with specified level, or return original if level is 0"""
+    if compression_level == 0:
+        # No compression - just return the original file
+        return input_file
+
     if not ZSTD_AVAILABLE:
         print_color("Error: zstandard library not available", Colors.RED)
         sys.exit(1)
-    
+
     compressed_file = tempfile.mktemp(suffix='.zst')
     cctx = zstd.ZstdCompressor(level=compression_level, threads=-1)
-    
+
     with open(input_file, 'rb') as f_in:
         with open(compressed_file, 'wb') as f_out:
             cctx.copy_stream(f_in, f_out)
-    
+
     return compressed_file
 
 def decompress_file_zstd(compressed_file, output_file):
@@ -505,7 +569,7 @@ def verify_connection(session):
         return False
 
 def run_performance_test(session, test_files, test_runs, base_compression_level,
-                        enable_verification, enable_metadata):
+                        enable_verification, enable_metadata, network_speed_mbps=None):
     """Run performance test with per-file compression level selection"""
     results = []
     zone = session.zone
@@ -513,7 +577,10 @@ def run_performance_test(session, test_files, test_runs, base_compression_level,
 
     print_color(f"\nRunning {test_runs} test iterations...", Colors.YELLOW)
     print_color(f"  Base compression level: {base_compression_level}", Colors.CYAN)
-    print_color(f"  Compression level selected per file", Colors.CYAN)
+    if ENABLE_ADAPTIVE_COMPRESSION and network_speed_mbps:
+        print_color(f"  Adaptive compression: ENABLED (per-file)", Colors.CYAN)
+    else:
+        print_color(f"  Compression level: FIXED at {base_compression_level}", Colors.CYAN)
     print_color(f"  Verification: {'ENABLED' if enable_verification else 'DISABLED'}", Colors.CYAN)
     print_color(f"  Metadata: {'ENABLED' if enable_metadata else 'DISABLED'}", Colors.CYAN)
 
@@ -533,27 +600,36 @@ def run_performance_test(session, test_files, test_runs, base_compression_level,
                 original_checksum = calculate_file_checksum(test_file)
 
             # Select compression level for this specific file
-            if ENABLE_ADAPTIVE_COMPRESSION:
-                # Get current network speed estimate for this file
-                file_size_mb = original_size / (1024 * 1024)
-                compression_level = base_compression_level  # Use the pre-calculated level per file
+            if ENABLE_ADAPTIVE_COMPRESSION and network_speed_mbps:
+                compression_level = select_compression_level_for_file(
+                    original_size, network_speed_mbps, base_compression_level
+                )
             else:
-                compression_level = base_compression_level
+                compression_level = 0  # No compression
 
-            # Compress with selected level
-            print(f"  Run {run_num}/{test_runs} [{filename}]: Compress(L{compression_level})... ", end='', flush=True)
-            compress_start = time.time()
-            upload_file = compress_file_zstd(test_file, compression_level)
-            compress_time = time.time() - compress_start
-            
-            if not verify_file_exists(upload_file):
-                print_color(f"✗ FAILED", Colors.RED)
-                failed_runs += 1
-                continue
-            
-            transfer_size = os.path.getsize(upload_file)
-            compression_ratio = (1 - transfer_size / original_size) * 100 if original_size > 0 else 0
-            print(f"✓ ({format_size(transfer_size)}, {compression_ratio:.1f}%, {compress_time:.3f}s) ", end='', flush=True)
+            # Compress with selected level (or skip if level is 0)
+            if compression_level == 0:
+                print(f"  Run {run_num}/{test_runs} [{filename}]: No compression... ", end='', flush=True)
+                compress_start = time.time()
+                upload_file = test_file  # Use original file
+                compress_time = time.time() - compress_start
+                transfer_size = original_size
+                compression_ratio = 0
+                print(f"✓ ({format_size(transfer_size)}) ", end='', flush=True)
+            else:
+                print(f"  Run {run_num}/{test_runs} [{filename}]: Compress(L{compression_level})... ", end='', flush=True)
+                compress_start = time.time()
+                upload_file = compress_file_zstd(test_file, compression_level)
+                compress_time = time.time() - compress_start
+
+                if not verify_file_exists(upload_file):
+                    print_color(f"✗ FAILED", Colors.RED)
+                    failed_runs += 1
+                    continue
+
+                transfer_size = os.path.getsize(upload_file)
+                compression_ratio = (1 - transfer_size / original_size) * 100 if original_size > 0 else 0
+                print(f"✓ ({format_size(transfer_size)}, {compression_ratio:.1f}%, {compress_time:.3f}s) ", end='', flush=True)
 
             # Use original filename in iRODS
             irods_path = f"/{zone}/home/{username}/{filename}"
@@ -562,88 +638,111 @@ def run_performance_test(session, test_files, test_runs, base_compression_level,
                 # Upload
                 print("Up... ", end='', flush=True)
                 upload_start = time.time()
-                session.data_objects.put(upload_file, irods_path, force=True) # might switch to parallel threading depending on client, flag for the put call set to 1
-                upload_time = time.time() - upload_start
+                try:
+                    session.data_objects.put(upload_file, irods_path, force=True) # might switch to parallel threading depending on client, flag for the put call set to 1
+                    upload_time = time.time() - upload_start
+                except iRODSException as irods_err:
+                    print_color(f"✗ iRODS ERROR: {type(irods_err).__name__}", Colors.RED)
+                    print_color(f"  Message: {str(irods_err)}", Colors.RED)
+                    if hasattr(irods_err, 'error_code'):
+                        print_color(f"  Error code: {irods_err.error_code}", Colors.RED)
+                    raise
                 
                 upload_verified, irods_size = verify_irods_upload(session, irods_path, transfer_size)
                 if not upload_verified:
                     print_color(f"✗ FAILED", Colors.RED)
                     failed_runs += 1
-                    os.unlink(upload_file)
+                    if compression_level > 0:  # Only delete temp file if compressed
+                        os.unlink(upload_file)
                     continue
-                
+
                 print(f"✓ ", end='', flush=True)
-                
+
                 # Metadata
-                if enable_metadata:
+                if enable_metadata and compression_level > 0:
                     print("Meta... ", end='', flush=True)
                     add_compression_metadata(session, irods_path, "zstd", original_size,
                                            compression_ratio, compression_level)
                     print(f"✓ ", end='', flush=True)
-                
+                elif enable_metadata and compression_level == 0:
+                    print("Meta... ", end='', flush=True)
+                    add_compression_metadata(session, irods_path, "none", original_size, 0, 0)
+                    print(f"✓ ", end='', flush=True)
+
                 # Download
                 print("Down... ", end='', flush=True)
                 download_file = tempfile.mktemp(suffix='.tmp')
                 download_start = time.time()
                 session.data_objects.get(irods_path, download_file, force=True)
                 download_time = time.time() - download_start
-                
+
                 download_verified, local_size = verify_local_download(download_file, transfer_size)
                 if not download_verified:
                     print_color(f"✗ FAILED", Colors.RED)
                     failed_runs += 1
-                    os.unlink(upload_file)
+                    if compression_level > 0:  # Only delete temp file if compressed
+                        os.unlink(upload_file)
                     session.data_objects.unlink(irods_path, force=True)
                     continue
-                
-                print(f"✓ Decomp... ", end='', flush=True)
-                
-                # Decompress
-                decompress_start = time.time()
-                decompressed_file = tempfile.mktemp(suffix='.dat')
-                
-                if enable_metadata:
-                    meta_success, metadata, _ = read_compression_metadata(session, irods_path)
-                    if meta_success:
-                        decompress_based_on_metadata(download_file, decompressed_file, metadata)
+
+                # Decompress (or skip if no compression)
+                if compression_level == 0:
+                    print(f"✓ No decomp... ", end='', flush=True)
+                    decompressed_file = download_file  # Use downloaded file directly
+                    decompress_time = 0
                 else:
-                    decompress_file_zstd(download_file, decompressed_file)
-                
-                decompress_time = time.time() - decompress_start
+                    print(f"✓ Decomp... ", end='', flush=True)
+                    decompress_start = time.time()
+                    decompressed_file = tempfile.mktemp(suffix='.dat')
+
+                    if enable_metadata:
+                        meta_success, metadata, _ = read_compression_metadata(session, irods_path)
+                        if meta_success:
+                            decompress_based_on_metadata(download_file, decompressed_file, metadata)
+                    else:
+                        decompress_file_zstd(download_file, decompressed_file)
+
+                    decompress_time = time.time() - decompress_start
                 
                 if not verify_file_exists(decompressed_file):
                     print_color(f"✗ FAILED", Colors.RED)
                     failed_runs += 1
-                    os.unlink(upload_file)
-                    os.unlink(download_file)
+                    if compression_level > 0:
+                        os.unlink(upload_file)
+                    if compression_level > 0 or decompressed_file != download_file:
+                        os.unlink(download_file)
                     session.data_objects.unlink(irods_path, force=True)
                     continue
-                
+
                 final_size = os.path.getsize(decompressed_file)
                 if enable_verification:
                     final_checksum = calculate_file_checksum(decompressed_file)
-                
-                os.unlink(decompressed_file)
-                
+
+                # Only delete decompressed file if it's different from download file
+                if compression_level > 0 and decompressed_file != download_file:
+                    os.unlink(decompressed_file)
+
                 # Verify
                 verification_passed = True
                 if final_size != original_size:
                     verification_passed = False
-                
+
                 if enable_verification and original_checksum != final_checksum:
                     verification_passed = False
-                
+
                 if not verification_passed:
                     print_color(f"✗ FAILED verification", Colors.RED)
                     failed_runs += 1
-                    os.unlink(upload_file)
+                    if compression_level > 0:
+                        os.unlink(upload_file)
                     os.unlink(download_file)
                     session.data_objects.unlink(irods_path, force=True)
                     continue
-                
+
                 # Cleanup
                 os.unlink(download_file)
-                os.unlink(upload_file)
+                if compression_level > 0:  # Only delete if it's a temp compressed file
+                    os.unlink(upload_file)
                 session.data_objects.unlink(irods_path, force=True)
                 
                 # Calculate throughput
@@ -669,7 +768,8 @@ def run_performance_test(session, test_files, test_runs, base_compression_level,
                 })
                 
             except Exception as e:
-                print_color(f"✗ FAILED: {e}", Colors.RED)
+                error_msg = f"{type(e).__name__}: {str(e)}" if e else "Unknown error"
+                print_color(f"✗ FAILED: {error_msg}", Colors.RED)
                 failed_runs += 1
                 try:
                     if os.path.exists(upload_file):
@@ -841,10 +941,10 @@ def main():
     timestamp = datetime.utcnow().strftime('%Y-%m-%d_%H-%M-%S')
     print(f"\nDate: {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')}")
     print(f"Test runs: {TEST_RUNS}")
-    print(f"Adaptive compression: {'ENABLED' if ENABLE_ADAPTIVE_COMPRESSION else 'DISABLED'}")
-    
-    if not ZSTD_AVAILABLE:
-        print_color("\nError: zstandard not installed!", Colors.RED)
+    print(f"Adaptive compression: {'ENABLED' if ENABLE_ADAPTIVE_COMPRESSION else 'DISABLED (no compression)'}")
+
+    if ENABLE_ADAPTIVE_COMPRESSION and not ZSTD_AVAILABLE:
+        print_color("\nError: zstandard not installed! Install with: pip install zstandard", Colors.RED)
         sys.exit(1)
     
     test_files = get_test_files(TEST_FILES_DIR)
@@ -873,22 +973,27 @@ def main():
             upload_speed, download_speed, latency = test_network_speed(
                 session, NETWORK_TEST_SIZE_MB, NETWORK_TEST_SAMPLES
             )
-            
+
             if upload_speed is None:
-                print_color("\nNetwork test failed, using default compression level", Colors.YELLOW)
-                compression_level = MANUAL_COMPRESSION_LEVEL
+                print_color("\nNetwork test failed, disabling compression", Colors.YELLOW)
+                compression_level = 0
             else:
                 # Use average of upload/download for compression decision
                 avg_speed = (upload_speed + download_speed) / 2
                 compression_level = select_compression_level(avg_speed)
         else:
-            compression_level = MANUAL_COMPRESSION_LEVEL
-            print_color(f"\nUsing manual compression level: {compression_level}", Colors.CYAN)
+            compression_level = 0
+            print_color(f"\nAdaptive compression disabled - No compression will be used", Colors.CYAN)
         
         # Run benchmark
+        # Pass network speed for per-file adaptive compression
+        avg_speed = None
+        if ENABLE_ADAPTIVE_COMPRESSION and 'upload_speed' in locals() and upload_speed is not None:
+            avg_speed = (upload_speed + download_speed) / 2
+
         results = run_performance_test(
             session, test_files, TEST_RUNS, compression_level,
-            ENABLE_FILE_VERIFICATION, ENABLE_METADATA
+            ENABLE_FILE_VERIFICATION, ENABLE_METADATA, avg_speed
         )
         
         if not results:
@@ -969,5 +1074,99 @@ def main():
     print_color("Benchmark completed!", Colors.GREEN)
     print_color("=" * 80, Colors.GREEN)
 
+def parse_bandwidth_limit(limit_str):
+    """Parse bandwidth limit string to kbps for wondershaper
+
+    Args:
+        limit_str: Either False, or string like "1mbps", "10mbps", "100mbps"
+
+    Returns:
+        kbps value or None if no limit
+    """
+    if not limit_str or limit_str == False:
+        return None
+
+    limit_str = str(limit_str).lower()
+    if limit_str.endswith('mbps'):
+        mbps = int(limit_str.replace('mbps', ''))
+        # Convert Mbps to kbps (1 Mbps = 1000 kbps)
+        return mbps * 1000
+
+    return None
+
+def apply_bandwidth_limit():
+    """Apply bandwidth limiting using wondershaper
+
+    Returns:
+        True if limit was applied, False otherwise
+    """
+    kbps = parse_bandwidth_limit(BANDWIDTH_LIMIT)
+
+    if kbps is None:
+        # No bandwidth limit requested
+        return False
+
+    # Check if wondershaper is available
+    if not shutil.which('wondershaper'):
+        print_color("Warning: wondershaper not found. Install with: sudo apt install wondershaper", Colors.YELLOW)
+        print_color(f"Continuing without bandwidth limit of {BANDWIDTH_LIMIT}", Colors.YELLOW)
+        return False
+
+    try:
+        print_color(f"\nApplying bandwidth limit: {BANDWIDTH_LIMIT} ({kbps} kbps)", Colors.CYAN)
+        print_color(f"Interface: {NETWORK_INTERFACE}", Colors.CYAN)
+
+        # Apply bandwidth limit
+        # wondershaper <interface> <download_kbps> <upload_kbps>
+        cmd = ['sudo', 'wondershaper', NETWORK_INTERFACE, str(kbps), str(kbps)]
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+
+        if result.returncode != 0:
+            print_color(f"Warning: Failed to apply bandwidth limit: {result.stderr}", Colors.YELLOW)
+            print_color("Continuing without bandwidth limit...", Colors.YELLOW)
+            return False
+
+        print_color(f"✓ Bandwidth limit applied successfully", Colors.GREEN)
+        print_color(f"  Download: {kbps} kbps (~{kbps/8:.1f} KB/s)", Colors.GREEN)
+        print_color(f"  Upload:   {kbps} kbps (~{kbps/8:.1f} KB/s)", Colors.GREEN)
+        return True
+
+    except subprocess.TimeoutExpired:
+        print_color("Warning: wondershaper command timed out", Colors.YELLOW)
+        return False
+    except Exception as e:
+        print_color(f"Warning: Failed to apply bandwidth limit: {e}", Colors.YELLOW)
+        return False
+
+def remove_bandwidth_limit():
+    """Remove bandwidth limiting using wondershaper"""
+    # Only try to remove if bandwidth limiting was requested
+    if not BANDWIDTH_LIMIT or BANDWIDTH_LIMIT == False:
+        return
+
+    if not shutil.which('wondershaper'):
+        return
+
+    try:
+        print_color(f"\nRemoving bandwidth limit from {NETWORK_INTERFACE}...", Colors.CYAN)
+        cmd = ['sudo', 'wondershaper', 'clear', NETWORK_INTERFACE]
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+
+        if result.returncode == 0:
+            print_color(f"✓ Bandwidth limit removed", Colors.GREEN)
+        else:
+            print_color(f"Warning: Failed to remove bandwidth limit: {result.stderr}", Colors.YELLOW)
+
+    except Exception as e:
+        print_color(f"Warning: Failed to remove bandwidth limit: {e}", Colors.YELLOW)
+
 if __name__ == "__main__":
-    main()
+    # Apply bandwidth limiting if requested
+    bandwidth_applied = apply_bandwidth_limit()
+
+    try:
+        main()
+    finally:
+        # Always try to remove bandwidth limit when done
+        if bandwidth_applied:
+            remove_bandwidth_limit()

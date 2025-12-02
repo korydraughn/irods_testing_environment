@@ -6,3 +6,4 @@ tags
 venv/
 /performance_results/
 *.swp
+/demo_graphs/

@@ -144,3 +144,20 @@ To test if it is installed, type:
     1. python3
     2. from irods.session import iRODSSession
         * If this did not give you any errors you have installed the client properly
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+reconfiguring it back to the docker container
+open ~/.irods/irods_environment.json with a text editor:
+	for example: micro ~/.irods/irods_environment.json
+		change the ipaddress to "localhost"
+		then run the docker contianer as we used to do earlier with the command
+		finally run iinit and enter the default password: rods and press enter
+		to confirm you can try running "ils" and you should get this: /tempZone/home/rods:
+		
+then we are going to use tc (traffic controller)
+ NOTE: the bridge name on your system might be different so replace the <BRIDGE_NAME> here: sudo tc class replace dev <BRIDGE_NAME> parent 1:1 classid 1:11 htb rate 870mbit
+
+ for limiting to approximately 100mb/s: sudo tc class replace dev br-fc6aa51b74b7 parent 1:1 classid 1:11 htb rate 870mbit 
+
+ for limitting to approximately 50mb/s: sudo tc class replace dev br-fc6aa51b74b7 parent 1:1 classid 1:11 htb rate 435mbit
+
+ for limitting to approximately 10mb/s: 

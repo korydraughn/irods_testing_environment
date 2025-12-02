@@ -1,0 +1,7 @@
+1. make the compression level choice per file sent (redo for each file)
+
+2. do tc for 1,10,100 with 5 iterations and make docs on how to do it
+
+3. do the visualizations for local with tc for 1,10,100 (with and without compress)
+	3a. go through the poster and add the visualizations
+		3b. make sure he does tc like the docs say and do it for 1,10,100 with 5 iterations
