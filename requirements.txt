@@ -26,3 +26,10 @@ typing-extensions==3.10.0.2
 urllib3==1.26.6
 websocket-client==0.59.0
 zipp==3.5.0
+
+# Required for python_client_benchmark.py and compression_demo.py
+python-irodsclient>=1.1.0
+zstandard>=0.15.0
+psutil>=5.8.0
+matplotlib>=3.4.0
+numpy>=1.21.0
