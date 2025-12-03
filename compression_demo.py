@@ -462,6 +462,17 @@ def run_demo():
         sys.exit(1)
 
     try:
+        # Clean up demo_graphs directory if it has files
+        demo_graphs_dir = Path("./demo_graphs")
+        if demo_graphs_dir.exists() and any(demo_graphs_dir.iterdir()):
+            print_color("Cleaning up previous demo graphs...", Colors.YELLOW)
+            for file in demo_graphs_dir.iterdir():
+                if file.is_file():
+                    file.unlink()
+                    print_color(f"  Removed: {file.name}", Colors.YELLOW)
+            print_color("✓ Demo graphs cleanup complete", Colors.GREEN)
+            print()
+
         # Clean up before starting
         cleanup_irods_directory(session)
 
