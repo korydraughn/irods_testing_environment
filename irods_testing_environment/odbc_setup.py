@@ -1084,13 +1084,38 @@ def configure_odbc_driver(platform_image, database_image, csp_container, odbc_dr
     odbc_driver -- if specified, the ODBC driver will be sought here
     """
     import inspect
-    # generate the function name of the form:
-    #   configure_odbc_driver_platform-repo_platform-tag_database-repo_database-tag
-    func_name = '_'.join([inspect.currentframe().f_code.co_name,
-                          context.sanitize(context.image_repo(platform_image)),
-                          context.sanitize(context.image_tag(platform_image)),
-                          context.sanitize(context.image_repo(database_image)),
-                          context.sanitize(context.image_tag(database_image))])
 
-    eval(func_name)(csp_container, odbc_driver)
+    def normalize_image_parts(image):
+        image_str = str(image).split('/')[-1]
+        if '@' in image_str:
+            image_str = image_str.split('@', 1)[0]
 
+        if ':' in image_str:
+            repo, tag = image_str.split(':', 1)
+        elif '-' in image_str:
+            repo, tag = image_str.rsplit('-', 1)
+        else:
+            repo, tag = image_str, ''
+
+        return context.sanitize(repo), context.sanitize(tag)
+
+    p_repo, p_tag = normalize_image_parts(platform_image)
+    d_repo, d_tag = normalize_image_parts(database_image)
+
+    base_name = inspect.currentframe().f_code.co_name
+    candidates = []
+    if p_tag and d_tag:
+        candidates.append('_'.join([base_name, p_repo, p_tag, d_repo, d_tag]))
+    if p_tag:
+        candidates.append('_'.join([base_name, p_repo, p_tag, d_repo]))
+    if d_tag:
+        candidates.append('_'.join([base_name, p_repo, d_repo, d_tag]))
+    candidates.append('_'.join([base_name, p_repo, d_repo]))
+
+    for func_name in candidates:
+        func = globals().get(func_name)
+        if func:
+            return func(csp_container, odbc_driver)
+
+    raise NameError(f'no ODBC configuration function found for platform [{platform_image}] '
+                    f'and database [{database_image}]')
