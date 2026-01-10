@@ -262,9 +262,23 @@ def make_installer(platform_name):
     from . import rockylinux_installer
     from . import ubuntu_installer
 
-    name = '_'.join([platform_name, 'installer'])
+    normalized = platform_name.lower()
+    for prefix in ('almalinux', 'rockylinux', 'debian', 'ubuntu'):
+        if normalized.startswith(prefix):
+            normalized = prefix
+            break
 
-    return eval('.'.join([name, name]))()
+    installers = {
+        'almalinux': almalinux_installer.almalinux_installer,
+        'rockylinux': rockylinux_installer.rockylinux_installer,
+        'debian': debian_installer.debian_installer,
+        'ubuntu': ubuntu_installer.ubuntu_installer,
+    }
+
+    if normalized not in installers:
+        raise ValueError(f'unsupported platform [{platform_name}]')
+
+    return installers[normalized]()
 
 
 def install_pip_package_from_repo(container,

@@ -145,25 +145,25 @@ def sanitize(repo_or_tag):
 
 
 def project_name(container_name):
-    """Return the docker-compose project name based on the `container_name`.
+    """Return the docker compose v2 project name based on the `container_name`.
 
-    NOTE: docker-compose "sanitizes" project names to remove certain special characters, so the
-    `--project-name` provided to `docker-compose` may be different from the project name used
-    when constructed the name of the image(s) and container(s).
+    docker compose v2 container names are generated as:
+        project-name-service-name-service-instance
+    We parse using rsplit to preserve service names containing dashes.
 
     Arguments:
     container_name -- the name of the container from which the project name is extracted
     """
-    return container_name.split('_')[0]
+    return container_name.rsplit('-', 2)[0]
 
 
 def service_name(container_name):
-    """Return the docker-compose project service name based on the `container_name`.
+    """Return the docker compose v2 project service name based on the `container_name`.
 
     Arguments:
     container_name -- the name of the container from which the service name is extracted
     """
-    return container_name.split('_')[1]
+    return container_name.rsplit('-', 2)[1]
 
 
 def service_instance(container_name):
@@ -172,23 +172,21 @@ def service_instance(container_name):
     Arguments:
     container_name -- the name of the container from which the service instance is extracted
     """
-    return int(container_name.split('_')[2])
+    return int(container_name.rsplit('-', 2)[2])
 
 
 def container_name(project_name, service_name, service_instance=1):
-    """Return the name of the container as constructed by docker-compose.
+    """Return the name of the container as constructed by docker compose v2.
 
-    The passed in `project_name` will have dots (.) removed because docker-compose strips all
-    dots from its project names. docker-compose container names are generated in three parts
-    which are delimited by underscores, like this:
-        project-name_service-name_service-instance-as-a-1-indexed-integer
+    docker compose v2 container names are generated in three parts delimited by dashes:
+        project-name-service-name-service-instance-as-a-1-indexed-integer
 
     Arguments:
-    project_name -- name of the docker-compose project (1)
-    service_name -- name of the service in the docker-compose project (2)
+    project_name -- name of the docker compose project (1)
+    service_name -- name of the service in the docker compose project (2)
     service_instance -- number of the instance of the service instance (3)
     """
-    return '_'.join([sanitize(project_name), service_name, str(service_instance)])
+    return '-'.join([sanitize(project_name), service_name, str(service_instance)])
 
 
 def base_image(container, tag=0):
