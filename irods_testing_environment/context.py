@@ -212,9 +212,8 @@ def container_hostname(container):
     Arguments:
     container -- docker.container from which the hostname is to be extracted
     """
-    print(f">>>>>>>>>>> in container_hostname")
-    print(f">>>>>>>>>>> {container.client.api.inspect_container(container.name)['Config']['Hostname']}")
-    return container.client.api.inspect_container(container.name)['Config']['Hostname']
+    import docker
+    return docker.from_env().api.inspect_container(container.name)['Config']['Hostname']
 
 
 def container_ip(container, network_name=None):
@@ -224,10 +223,8 @@ def container_ip(container, network_name=None):
     container -- docker.container from which the IP is to be extracted
     network_name -- name of the docker network to inspect (if None, default network is used)
     """
-    print(f">>>>>>>>>>> in container_ip")
-    print(f">>>>>>>>>> {(container.client.api.inspect_container(container.name)['NetworkSettings']['Networks'][network_name or '_'.join([project_name(container.name), 'default'])]['IPAddress'])}")
-    # FIXME "container" is our shim type. it likely needs to be a docker container type
-    return (container.client.api.inspect_container(container.name)
+    import docker
+    return (docker.from_env().api.inspect_container(container.name)
         ['NetworkSettings']
         ['Networks']
         [network_name or '_'.join([project_name(container.name), 'default'])]
