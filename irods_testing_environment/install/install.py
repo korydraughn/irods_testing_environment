@@ -110,7 +110,7 @@ class installer(object):
 
         packages = self.get_list_of_package_paths(package_directory, package_name_list)
 
-        logging.info('packages to install [{}]'.format(packages))
+        logging.info('(b) packages to install [{}]'.format(packages))
 
         tarfile_path = archive.create_archive(packages)
 
@@ -178,11 +178,11 @@ class installer(object):
         else:
             packages = context.irods_package_names(ctx.database_name())
 
-        logging.info('packages to install [{}]'.format(packages))
+        logging.info('(a) packages to install [{}]'.format(packages))
 
         rc = 0
         with concurrent.futures.ThreadPoolExecutor() as executor:
-            futures_to_containers = {executor.submit(install_packages_, ctx, c, packages): c for c in containers}
+            futures_to_containers = {executor.submit(install_packages_, ctx, c, packages): c for c in containers if not context.is_catalog_database_container(c)}
             logging.debug(futures_to_containers)
 
             for f in concurrent.futures.as_completed(futures_to_containers):

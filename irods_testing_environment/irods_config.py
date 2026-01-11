@@ -189,7 +189,9 @@ def configure_host_resolution(docker_client, compose_project):
     docker_client -- docker client for interacting with the docker-compose project
     compose_project -- compose.Project in which the iRODS servers are running
     """
+    print('>>>>>>>>>> in configure_host_resolution')
     def set_hostnames(docker_client, docker_compose_container):
+        print('>>>>>>>>>> in set_hostname')
         container = docker_client.containers.get(docker_compose_container.name)
 
         if context.is_irods_catalog_provider_container(container):
@@ -208,6 +210,7 @@ def configure_host_resolution(docker_client, compose_project):
                 ]
             }
         ]
+        print('>>>>>>>>>> host_entries array initialized')
 
         for o in containers:
             if o.name == container.name: continue
@@ -220,6 +223,7 @@ def configure_host_resolution(docker_client, compose_project):
                 remote_address = 'resource{}.example.org'.format(
                     context.service_instance(other.name))
 
+            print('>>>>>>>>>> appending addresses to host_entries array')
             host_entries.append(
                 {
                     'address_type': 'remote',
@@ -248,6 +252,7 @@ def configure_host_resolution(docker_client, compose_project):
     containers = compose_project.containers(service_names=[
         context.irods_catalog_provider_service(),
         context.irods_catalog_consumer_service()])
+    print('>>>>>>>> containers =', containers)
 
     rc = 0
     with concurrent.futures.ThreadPoolExecutor() as executor:
@@ -316,6 +321,7 @@ def configure_hello_script(docker_client, compose_project):
     containers = compose_project.containers(service_names=[
         context.irods_catalog_provider_service(),
         context.irods_catalog_consumer_service()])
+    print('>>> containers =', containers)
 
     hello_script = os.path.join(context.irods_home(), 'msiExecCmd_bin', 'hello')
 

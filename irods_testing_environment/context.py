@@ -157,13 +157,13 @@ def project_name(container_name):
     return container_name.rsplit('-', 2)[0]
 
 
-def service_name(container_name):
-    """Return the docker compose v2 project service name based on the `container_name`.
-
-    Arguments:
-    container_name -- the name of the container from which the service name is extracted
-    """
-    return container_name.rsplit('-', 2)[1]
+#def service_name(container_name):
+#    """Return the docker compose v2 project service name based on the `container_name`.
+#
+#    Arguments:
+#    container_name -- the name of the container from which the service name is extracted
+#    """
+#    return '-'.join(container_name.rsplit('-', 4)[1:-1])
 
 
 def service_instance(container_name):
@@ -212,6 +212,8 @@ def container_hostname(container):
     Arguments:
     container -- docker.container from which the hostname is to be extracted
     """
+    print(f">>>>>>>>>>> in container_hostname")
+    print(f">>>>>>>>>>> {container.client.api.inspect_container(container.name)['Config']['Hostname']}")
     return container.client.api.inspect_container(container.name)['Config']['Hostname']
 
 
@@ -222,6 +224,9 @@ def container_ip(container, network_name=None):
     container -- docker.container from which the IP is to be extracted
     network_name -- name of the docker network to inspect (if None, default network is used)
     """
+    print(f">>>>>>>>>>> in container_ip")
+    print(f">>>>>>>>>> {(container.client.api.inspect_container(container.name)['NetworkSettings']['Networks'][network_name or '_'.join([project_name(container.name), 'default'])]['IPAddress'])}")
+    # FIXME "container" is our shim type. it likely needs to be a docker container type
     return (container.client.api.inspect_container(container.name)
         ['NetworkSettings']
         ['Networks']
@@ -298,17 +303,17 @@ def irods_catalog_database_container(project_name, service_instance=1):
 
 def is_catalog_database_container(container):
     """Return True if `container` is the database service. Otherwise, False."""
-    return service_name(container.name) == irods_catalog_database_service()
+    return container.name.rsplit('-', 2)[-2] == irods_catalog_database_service()
 
 
 def is_irods_catalog_provider_container(container):
     """Return True if `container` is the iRODS CSP service. Otherwise, False."""
-    return service_name(container.name) == irods_catalog_provider_service()
+    return '-'.join(container.name.rsplit('-', 4)[1:-1]) == irods_catalog_provider_service()
 
 
 def is_irods_catalog_consumer_container(container):
     """Return True if `container` is the iRODS CSC service. Otherwise, False."""
-    return service_name(container.name) == irods_catalog_consumer_service()
+    return '-'.join(container.name.rsplit('-', 4)[1:-1]) == irods_catalog_consumer_service()
 
 
 def is_irods_server_in_local_zone(container, local_zone):

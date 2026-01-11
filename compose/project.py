@@ -53,7 +53,16 @@ class Project:
     def containers(self, service_names=None):
         """Return containers for this compose project."""
         label_filters = [f"com.docker.compose.project={self.name}"]
-        if service_names:
-            label_filters.extend([f"com.docker.compose.service={s}" for s in service_names])
-        containers = self._docker_client.containers.list(all=True, filters={"label": label_filters})
+
+        if not service_names:
+            containers = self._docker_client.containers.list(all=True, filters={"label": label_filters})
+            return [Container(c.name) for c in containers]
+
+        containers = []
+        for sn in service_names:
+            f = {"label": label_filters + [f"com.docker.compose.service={sn}"]}
+            c = self._docker_client.containers.list(all=True, filters=f)
+            if c:
+                containers.append(c[0])
+
         return [Container(c.name) for c in containers]
