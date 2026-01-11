@@ -1085,37 +1085,13 @@ def configure_odbc_driver(platform_image, database_image, csp_container, odbc_dr
     """
     import inspect
 
-    def normalize_image_parts(image):
-        image_str = str(image).split('/')[-1]
-        if '@' in image_str:
-            image_str = image_str.split('@', 1)[0]
-
-        if ':' in image_str:
-            repo, tag = image_str.split(':', 1)
-        elif '-' in image_str:
-            repo, tag = image_str.rsplit('-', 1)
-        else:
-            repo, tag = image_str, ''
-
-        return context.sanitize(repo), context.sanitize(tag)
-
-    p_repo, p_tag = normalize_image_parts(platform_image)
-    d_repo, d_tag = normalize_image_parts(database_image)
-
     base_name = inspect.currentframe().f_code.co_name
-    candidates = []
-    if p_tag and d_tag:
-        candidates.append('_'.join([base_name, p_repo, p_tag, d_repo, d_tag]))
-    if p_tag:
-        candidates.append('_'.join([base_name, p_repo, p_tag, d_repo]))
-    if d_tag:
-        candidates.append('_'.join([base_name, p_repo, d_repo, d_tag]))
-    candidates.append('_'.join([base_name, p_repo, d_repo]))
+    pf_part = '_'.join(platform_image.split('-', 2)[:2])
+    db_part = database_image.replace(':', '_').replace('.', '')
 
-    for func_name in candidates:
-        func = globals().get(func_name)
-        if func:
-            return func(csp_container, odbc_driver)
+    func = globals().get('_'.join([base_name, pf_part, db_part ]))
+    if func:
+        return func(csp_container, odbc_driver)
 
     raise NameError(f'no ODBC configuration function found for platform [{platform_image}] '
                     f'and database [{database_image}]')
