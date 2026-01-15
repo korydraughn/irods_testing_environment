@@ -315,7 +315,7 @@ class test_runner_irods_plugin_tests(test_runner):
 
             install.install_pip_package_from_repo(self.executor,
                                                   'irods_python_ci_utilities',
-                                                  url_base='https://github.com/irods',
+                                                  url_base='https://github.com/korydraughn',
                                                   branch='main')
 
         if options: cmd.extend(options)
